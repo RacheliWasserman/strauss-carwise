@@ -1,0 +1,212 @@
+[
+  {
+    "taxYear": 2026,
+    "registrationYear": 2025,
+    "vehicleTypeCode": "1",
+    "manufacturerCode": "00253",
+    "modelCode": "00133",
+    "valueOfUse": 4790,
+    "driveCode": "0",
+    "listPrice": 188497
+  },
+  {
+    "taxYear": 2026,
+    "registrationYear": 2025,
+    "vehicleTypeCode": "1",
+    "manufacturerCode": "00413",
+    "modelCode": "00296",
+    "valueOfUse": 4070,
+    "driveCode": "1",
+    "listPrice": 182990
+  },
+  {
+    "taxYear": 2026,
+    "registrationYear": 2025,
+    "vehicleTypeCode": "1",
+    "manufacturerCode": "00413",
+    "modelCode": "00368",
+    "valueOfUse": 4470,
+    "driveCode": "1",
+    "listPrice": 199000
+  },
+  {
+    "taxYear": 2026,
+    "registrationYear": 2025,
+    "vehicleTypeCode": "1",
+    "manufacturerCode": "00443",
+    "modelCode": "00032",
+    "valueOfUse": 2430,
+    "driveCode": "3",
+    "listPrice": 150000
+  },
+  {
+    "taxYear": 2026,
+    "registrationYear": 2025,
+    "vehicleTypeCode": "1",
+    "manufacturerCode": "00481",
+    "modelCode": "00533",
+    "valueOfUse": 4700,
+    "driveCode": "0",
+    "listPrice": 185000
+  },
+  {
+    "taxYear": 2026,
+    "registrationYear": 2025,
+    "vehicleTypeCode": "1",
+    "manufacturerCode": "00588",
+    "modelCode": "00446",
+    "valueOfUse": 4570,
+    "driveCode": "0",
+    "listPrice": 179900
+  },
+  {
+    "taxYear": 2026,
+    "registrationYear": 2025,
+    "vehicleTypeCode": "1",
+    "manufacturerCode": "00672",
+    "modelCode": "00130",
+    "valueOfUse": 3350,
+    "driveCode": "1",
+    "listPrice": 154990
+  },
+  {
+    "taxYear": 2026,
+    "registrationYear": 2025,
+    "vehicleTypeCode": "1",
+    "manufacturerCode": "00676",
+    "modelCode": "01455",
+    "valueOfUse": 5150,
+    "driveCode": "0",
+    "listPrice": 202690
+  },
+  {
+    "taxYear": 2026,
+    "registrationYear": 2025,
+    "vehicleTypeCode": "1",
+    "manufacturerCode": "00778",
+    "modelCode": "00618",
+    "valueOfUse": 3880,
+    "driveCode": "0",
+    "listPrice": 152900
+  },
+  {
+    "taxYear": 2026,
+    "registrationYear": 2025,
+    "vehicleTypeCode": "1",
+    "manufacturerCode": "00885",
+    "modelCode": "00619",
+    "valueOfUse": 2950,
+    "driveCode": "1",
+    "listPrice": 139000
+  },
+  {
+    "taxYear": 2026,
+    "registrationYear": 2025,
+    "vehicleTypeCode": "1",
+    "manufacturerCode": "00885",
+    "modelCode": "00643",
+    "valueOfUse": 2690,
+    "driveCode": "0",
+    "listPrice": 105900
+  },
+  {
+    "taxYear": 2026,
+    "registrationYear": 2025,
+    "vehicleTypeCode": "1",
+    "manufacturerCode": "00885",
+    "modelCode": "00648",
+    "valueOfUse": 8120,
+    "driveCode": "0",
+    "listPrice": 319900
+  },
+  {
+    "taxYear": 2026,
+    "registrationYear": 2025,
+    "vehicleTypeCode": "1",
+    "manufacturerCode": "00885",
+    "modelCode": "00675",
+    "valueOfUse": 2930,
+    "driveCode": "3",
+    "listPrice": 169900
+  },
+  {
+    "taxYear": 2026,
+    "registrationYear": 2025,
+    "vehicleTypeCode": "1",
+    "manufacturerCode": "01014",
+    "modelCode": "00003",
+    "valueOfUse": 3130,
+    "driveCode": "3",
+    "listPrice": 177500
+  },
+  {
+    "taxYear": 2026,
+    "registrationYear": 2025,
+    "vehicleTypeCode": "1",
+    "manufacturerCode": "01014",
+    "modelCode": "00012",
+    "valueOfUse": 2590,
+    "driveCode": "3",
+    "listPrice": 150990
+  },
+  {
+    "taxYear": 2026,
+    "registrationYear": 2025,
+    "vehicleTypeCode": "1",
+    "manufacturerCode": "01014",
+    "modelCode": "00014",
+    "valueOfUse": 4970,
+    "driveCode": "3",
+    "listPrice": 250000
+  },
+  {
+    "taxYear": 2026,
+    "registrationYear": 2025,
+    "vehicleTypeCode": "1",
+    "manufacturerCode": "01327",
+    "modelCode": "00730",
+    "valueOfUse": 4150,
+    "driveCode": "3",
+    "listPrice": 217813
+  },
+  {
+    "taxYear": 2026,
+    "registrationYear": 2025,
+    "vehicleTypeCode": "2",
+    "manufacturerCode": "01014",
+    "modelCode": "00003",
+    "valueOfUse": 6950,
+    "driveCode": "3",
+    "listPrice": 327990
+  },
+  {
+    "taxYear": 2026,
+    "registrationYear": 2026,
+    "vehicleTypeCode": "1",
+    "manufacturerCode": "00253",
+    "modelCode": "00138",
+    "valueOfUse": 2960,
+    "driveCode": "3",
+    "listPrice": 174990
+  },
+  {
+    "taxYear": 2026,
+    "registrationYear": 2026,
+    "vehicleTypeCode": "1",
+    "manufacturerCode": "00416",
+    "modelCode": "00294",
+    "valueOfUse": 4550,
+    "driveCode": "2",
+    "listPrice": 229900
+  },
+  {
+    "taxYear": 2026,
+    "registrationYear": 2026,
+    "vehicleTypeCode": "1",
+    "manufacturerCode": "00839",
+    "modelCode": "00295",
+    "valueOfUse": 4120,
+    "driveCode": "0",
+    "listPrice": 165990
+  }
+]
