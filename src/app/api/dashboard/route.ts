@@ -22,6 +22,7 @@ import {
   type Choice
 } from '@/lib/calculator';
 import type { Car } from '@/lib/types';
+import { getAuthenticatedProfile } from '@/lib/require-authenticated-user';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -49,6 +50,22 @@ export async function GET() {
   }
 
   try {
+    const profile = await getAuthenticatedProfile();
+
+    if (!profile) {
+      return NextResponse.json(
+        { error: 'נדרשת התחברות כדי לגשת לנתונים' },
+        { status: 401 }
+      );
+    }
+
+    if (profile.role !== 'representative') {
+      return NextResponse.json(
+        { error: 'נתוני ההדגמה זמינים לנציגים מורשים בלבד' },
+        { status: 403 }
+      );
+    }
+
     const [employeeRows, cars] = await Promise.all([
       supabaseAdmin
         .from('employees')
@@ -114,6 +131,22 @@ export async function POST(request: Request) {
   }
 
   try {
+    const profile = await getAuthenticatedProfile();
+
+    if (!profile) {
+      return NextResponse.json(
+        { error: 'נדרשת התחברות כדי לבצע חישוב' },
+        { status: 401 }
+      );
+    }
+
+    if (profile.role !== 'representative') {
+      return NextResponse.json(
+        { error: 'נתוני ההדגמה זמינים לנציגים מורשים בלבד' },
+        { status: 403 }
+      );
+    }
+
     const { employeeId, carId } = requestSchema.parse(
       await request.json()
     );

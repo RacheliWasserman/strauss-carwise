@@ -2,6 +2,7 @@
 import { supabase } from '../../lib/supabase';
 import { supabaseAdmin } from './supabase-admin';
 import type { Car, Group } from './types';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 export type VehicleRow = {
   id: string;
@@ -21,12 +22,16 @@ export type VehicleRow = {
   active: boolean;
 };
 
-export async function getVehicles(): Promise<VehicleRow[]> {
-  const { data, error } = await supabase
+function activeVehicleQuery<Columns extends string>(client: SupabaseClient, columns: Columns) {
+  return client
     .from('vehicle_catalog')
-    .select('*')
+    .select(columns)
     .eq('active', true)
     .order('id');
+}
+
+export async function getVehicles(): Promise<VehicleRow[]> {
+  const { data, error } = await activeVehicleQuery(supabase, '*');
 
   if (error) {
     throw new Error(`Failed to load vehicles: ${error.message}`);
@@ -35,6 +40,42 @@ export async function getVehicles(): Promise<VehicleRow[]> {
   return (data ?? []) as VehicleRow[];
 }
 
+export type VehicleSearchFilters = {
+  name?: string; manufacturer?: string; group?: string; driveType?: string;
+  limit: number; afterId?: string;
+};
+// Escape SQL LIKE metacharacters: search text is always literal, never a pattern.
+const containsLiteral = (value: string) => `%${value.replace(/[\\%_]/g, '\\$&')}%`;
+
+export async function searchVehicles(
+  client: SupabaseClient, filters: VehicleSearchFilters
+): Promise<unknown[]> {
+  // Caller supplies the authenticated SSR client. Never fall back to admin/anon.
+  let query = activeVehicleQuery(client,
+    'id, display_name, manufacturer_name, group_code, drive_type, active');
+  if (filters.name) query = query.ilike('display_name', containsLiteral(filters.name));
+  if (filters.manufacturer) query = query.ilike('manufacturer_name', containsLiteral(filters.manufacturer));
+  if (filters.group) query = query.eq('group_code', filters.group);
+  if (filters.driveType) query = query.eq('drive_type', filters.driveType);
+  if (filters.afterId) query = query.gt('id', filters.afterId);
+  const { data, error } = await query.limit(filters.limit + 1);
+  if (error || !Array.isArray(data)) throw new Error('Vehicle catalog unavailable');
+  return data;
+}
+
+
+const calculatorVehicleColumns =
+  'id, group_code, display_name, manufacturer_name, tax_year, registration_year, vehicle_type_code, manufacturer_code, model_code, drive_type, monthly_company_cost, default_employee_participation, model_description, list_price, active';
+
+/** Full active rows for calculation, through the caller's authenticated client. Missing IDs are simply absent. */
+export async function getActiveVehicleRowsByIds(
+  client: SupabaseClient, ids: string[]
+): Promise<VehicleRow[]> {
+  if (!ids.length) return [];
+  const { data, error } = await activeVehicleQuery(client, calculatorVehicleColumns).in('id', ids).limit(ids.length);
+  if (error || !Array.isArray(data)) throw new Error('Vehicle catalog unavailable');
+  return data as unknown as VehicleRow[];
+}
 
 export async function toCalculatorCar(
   vehicle: VehicleRow

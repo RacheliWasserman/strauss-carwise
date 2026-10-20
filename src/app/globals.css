@@ -1,3 +1,30 @@
 @import "tailwindcss";
 :root{font-family:Arial,Helvetica,sans-serif;color:#172a32;background:#f5f7fa}
 body{margin:0}button,select,input{font:inherit}button{cursor:pointer}
+
+.auth-shell{min-height:100vh;display:grid;grid-template-columns:minmax(320px,0.9fr) minmax(0,1.1fr);background:#f3f6f4}
+.auth-panel{width:min(100%,480px);align-self:center;justify-self:center;padding:56px 42px}
+.auth-mark{font-size:14px;font-weight:800;color:#164b45}
+.auth-mark span{color:#c0643a}
+.auth-eyebrow{margin:54px 0 12px;color:#57716a;font-size:13px;font-weight:700}
+.auth-panel h1{margin:0;color:#172a32;font-size:34px;line-height:1.2}
+.auth-intro{margin:12px 0 30px;color:#5d6b68;line-height:1.7}
+.auth-form{display:grid;gap:19px}
+.auth-form label{display:grid;gap:8px;color:#314541;font-size:14px;font-weight:700}
+.auth-form input{width:100%;height:48px;border:1px solid #c8d4d0;border-radius:8px;background:#fff;padding:0 13px;color:#172a32;outline:none}
+.auth-form input:focus{border-color:#287365;box-shadow:0 0 0 3px rgb(40 115 101 / 13%)}
+.auth-submit{min-height:48px;border:0;border-radius:8px;background:#155b50;color:#fff;font-weight:700;transition:background .15s ease}
+.auth-submit:hover:not(:disabled){background:#10483f}
+.auth-submit:disabled{cursor:wait;opacity:.65}
+.auth-alert{margin:0;border-radius:7px;padding:12px 14px;font-size:14px;line-height:1.6}
+.auth-error{background:#fff0ed;color:#a33e2c}
+.auth-success{background:#eaf5ef;color:#246743}
+.auth-switch{margin:24px 0 0;color:#61716c;font-size:14px}
+.auth-switch a{color:#155b50;font-weight:700;text-decoration:underline;text-underline-offset:3px}
+.auth-aside{position:relative;display:flex;min-height:100vh;flex-direction:column;justify-content:flex-end;overflow:hidden;background:#164b45;padding:clamp(36px,7vw,96px);color:#fff}
+.auth-aside::before{position:absolute;inset:0;content:"";background:linear-gradient(145deg,transparent 45%,rgb(6 41 38 / 38%)),repeating-linear-gradient(135deg,transparent 0 38px,rgb(255 255 255 / 4%) 39px 40px)}
+.auth-aside-label,.auth-aside p,.auth-aside-rule{position:relative}
+.auth-aside-label{color:#c2d9cd;font-size:12px;font-weight:700}
+.auth-aside p{margin:18px 0 26px;font-size:clamp(30px,4vw,54px);font-weight:700;line-height:1.2}
+.auth-aside-rule{width:58px;height:4px;background:#d17a4c}
+@media(max-width:760px){.auth-shell{grid-template-columns:1fr}.auth-panel{padding:40px 24px}.auth-eyebrow{margin-top:42px}.auth-aside{min-height:220px;padding:32px 24px}.auth-aside p{font-size:30px;margin:12px 0 18px}}

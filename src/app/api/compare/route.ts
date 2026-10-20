@@ -19,6 +19,7 @@ import {
   eligibility,
   type Choice
 } from '@/lib/calculator';
+import { getAuthenticatedProfile } from '@/lib/require-authenticated-user';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -39,6 +40,22 @@ export async function POST(request: Request) {
   }
 
   try {
+    const profile = await getAuthenticatedProfile();
+
+    if (!profile) {
+      return NextResponse.json(
+        { error: 'נדרשת התחברות כדי לגשת לנתוני ההשוואה' },
+        { status: 401 }
+      );
+    }
+
+    if (profile.role !== 'representative') {
+      return NextResponse.json(
+        { error: 'ממשק ההשוואה לדוגמה זמין לנציגים מורשים בלבד' },
+        { status: 403 }
+      );
+    }
+
     const { employeeId, carId } = input.parse(
       await request.json()
     );
@@ -130,6 +147,22 @@ export async function GET() {
   }
 
   try {
+    const profile = await getAuthenticatedProfile();
+
+    if (!profile) {
+      return NextResponse.json(
+        { error: 'נדרשת התחברות כדי לגשת לקטלוג' },
+        { status: 401 }
+      );
+    }
+
+    if (profile.role !== 'representative') {
+      return NextResponse.json(
+        { error: 'ממשק ההשוואה לדוגמה זמין לנציגים מורשים בלבד' },
+        { status: 403 }
+      );
+    }
+
     const vehicles = await getVehicles();
 
     return NextResponse.json({

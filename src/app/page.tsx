@@ -6,6 +6,7 @@ import {
   displayShekels,
   type Calculation
 } from '@/lib/calculator';
+import { LogoutButton } from '@/components/logout-button';
 
 type EmployeeOption = {
   id: string;
@@ -173,8 +174,11 @@ export default function Home() {
       className="mx-auto max-w-5xl px-5 py-10 space-y-8"
     >
       <header className="rounded-3xl bg-[#123f50] text-white p-8 shadow-lg">
-        <div className="text-sm text-teal-200 mb-2">
-          STRAUSS · CAR ADVISOR · DEMO
+        <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
+          <div className="text-sm text-teal-200">
+            STRAUSS · CAR ADVISOR · DEMO
+          </div>
+          <LogoutButton />
         </div>
         <h1 className="text-3xl font-bold mb-3">
           יועץ הרכב החכם של שטראוס
@@ -294,7 +298,8 @@ export default function Home() {
               </strong>
             </article>
 
-            <article className="bg-teal-50 rounded-2xl p-6 shadow-sm">
+            <article
+             className="bg-teal-50 rounded-2xl p-6 shadow-sm">
               <p className="text-slate-600 mb-2">
                 השינוי בנטו
               </p>
