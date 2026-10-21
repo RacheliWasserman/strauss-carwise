@@ -1,0 +1,6 @@
+body { font-family: Arial, sans-serif; direction: rtl; margin: 28px; color: #111; font-size: 13px; width: 760px; }
+h1 { font-size: 18px; margin: 0 0 4px; } .fake { color: #a00; font-size: 11px; }
+table { border-collapse: collapse; margin: 10px 0; }
+td, th { border: 1px solid #888; padding: 5px 14px; text-align: right; }
+.row { display: flex; gap: 48px; align-items: flex-start; }
+.note { margin-top: 12px; font-size: 11px; color: #555; }

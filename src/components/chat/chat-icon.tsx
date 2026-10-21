@@ -18,7 +18,9 @@ const paths = {
   user: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-8 9v-2a7 7 0 0 1 14 0v2',
   clock: 'M12 8v5l3 2m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0',
   down: 'M12 5v14m-6-6 6 6 6-6',
-  route: 'M6 20h9a5 5 0 0 0 0-10H9a4 4 0 0 1 0-8h9M6 17v6M18 0v5'
+  route: 'M6 20h9a5 5 0 0 0 0-10H9a4 4 0 0 1 0-8h9M6 17v6M18 0v5',
+  document: 'M14 3H6v18h12V7zm0 0v4h4M9 12h6m-6 4h6',
+  upload: 'M12 16V4m-5 5 5-5 5 5M4 16v4h16v-4'
 };
 export type ChatIconName = keyof typeof paths;
 export function ChatIcon({ name, className = '', style }: { name: ChatIconName; className?: string; style?: CSSProperties }) {

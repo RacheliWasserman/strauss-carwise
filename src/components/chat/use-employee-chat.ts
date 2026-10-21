@@ -70,7 +70,7 @@ export function useEmployeeChat(userId: string) {
     setActiveId(operation ? operation.conversationId : urlId ?? savedId);
     if (operation) {
       setDraft(operation.body);
-      setSendError('שליחה קודמת לא אושרה. לחצי על ניסיון חוזר כדי לוודא שההודעה נשמרה פעם אחת.');
+      setSendError('שליחה קודמת לא אושרה. אפשר ללחוץ על "ניסיון חוזר" כדי לוודא שההודעה נשמרה פעם אחת.');
     }
     setReady(true);
   }, [activeKey, pendingKey]);

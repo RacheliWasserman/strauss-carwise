@@ -5,20 +5,43 @@ import { useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { getHebrewAuthError } from '@/lib/auth-errors';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
+import { firstIssue, registrationSchema } from '@/lib/identity/employee-identity';
 
 type AuthFormProps = {
   mode: 'login' | 'register';
   initialError?: string;
 };
 
+async function readJson(response: Response): Promise<{ status?: string; message?: string; error?: string }> {
+  try { return await response.json(); } catch { return {}; }
+}
+
 export function AuthForm({ mode, initialError = '' }: AuthFormProps) {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [nationalId, setNationalId] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState(initialError);
   const [pending, setPending] = useState(false);
   const isRegister = mode === 'register';
+
+  async function register() {
+    // The same rules are enforced again on the server; this only gives immediate feedback.
+    const parsed = registrationSchema.safeParse({ email, password, firstName, lastName, nationalId });
+    if (!parsed.success) { setError(firstIssue(parsed.error)); return; }
+    const response = await fetch('/api/auth/register', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store',
+      body: JSON.stringify({ email, password, firstName, lastName, nationalId })
+    });
+    const data = await readJson(response);
+    if (response.ok && data.status === 'signed_in') { router.replace('/'); router.refresh(); return; }
+    if (response.ok) { setNationalId(''); setPassword(''); setMessage(data.message ?? 'נשלח אימייל לאישור החשבון. אחרי האישור אפשר להתחבר.'); return; }
+    if (response.status === 202) { setMessage(data.error ?? ''); return; }
+    setError(data.error ?? 'ההרשמה לא הושלמה. אפשר לנסות שוב.');
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -27,26 +50,10 @@ export function AuthForm({ mode, initialError = '' }: AuthFormProps) {
     setMessage('');
 
     try {
-      const supabase = createSupabaseBrowserClient();
-
       if (isRegister) {
-        const { data, error: signUpError } = await supabase.auth.signUp({
-          email: email.trim(),
-          password,
-          options: {
-            emailRedirectTo: `${window.location.origin}/auth/callback`
-          }
-        });
-
-        if (signUpError) {
-          setError(getHebrewAuthError(signUpError.message));
-        } else if (data.session) {
-          router.replace('/');
-          router.refresh();
-        } else {
-          setMessage('נשלח אליכם אימייל לאישור החשבון. לאחר האישור תוכלו להתחבר.');
-        }
+        await register();
       } else {
+        const supabase = createSupabaseBrowserClient();
         const { error: signInError } = await supabase.auth.signInWithPassword({
           email: email.trim(),
           password
@@ -60,7 +67,7 @@ export function AuthForm({ mode, initialError = '' }: AuthFormProps) {
         }
       }
     } catch {
-      setError('לא ניתן להתחבר כרגע. בדקו את החיבור ונסו שוב.');
+      setError('לא ניתן להתחבר כרגע. כדאי לבדוק את החיבור ולנסות שוב.');
     } finally {
       setPending(false);
     }
@@ -71,14 +78,34 @@ export function AuthForm({ mode, initialError = '' }: AuthFormProps) {
       <section className="auth-panel">
         <div className="auth-mark">STRAUSS <span>CARWISE</span></div>
         <p className="auth-eyebrow">גישה מאובטחת לעובדי שטראוס</p>
-        <h1>{isRegister ? 'פתיחת חשבון' : 'ברוכה הבאה'}</h1>
+        <h1>{isRegister ? 'פתיחת חשבון' : 'ברוכים הבאים'}</h1>
         <p className="auth-intro">
           {isRegister
-            ? 'צרו חשבון באמצעות כתובת האימייל שלכם.'
-            : 'התחברו כדי להמשיך ליועץ הרכב וההטבות.'}
+            ? 'פותחים חשבון עם השם, מספר תעודת הזהות וכתובת האימייל.'
+            : 'מתחברים כדי להמשיך ליועץ הרכב וההטבות.'}
         </p>
 
-        <form onSubmit={submit} className="auth-form">
+        <form onSubmit={submit} className="auth-form" noValidate={isRegister}>
+          {isRegister && <>
+            <div className="auth-row">
+              <label>
+                <span>שם פרטי</span>
+                <input type="text" name="given-name" autoComplete="given-name" dir="auto" maxLength={60}
+                  value={firstName} onChange={event => setFirstName(event.target.value)} required />
+              </label>
+              <label>
+                <span>שם משפחה</span>
+                <input type="text" name="family-name" autoComplete="family-name" dir="auto" maxLength={60}
+                  value={lastName} onChange={event => setLastName(event.target.value)} required />
+              </label>
+            </div>
+            <label>
+              <span>מספר תעודת זהות</span>
+              <input type="text" name="national-id" inputMode="numeric" autoComplete="off" dir="ltr" maxLength={12}
+                value={nationalId} onChange={event => setNationalId(event.target.value)} aria-describedby="auth-id-help" required />
+              <small id="auth-id-help" className="auth-help">9 ספרות, כולל ספרת ביקורת. המספר נשמר בחשבון בלבד, לא מוצג לנציגים ולא נשלח למערכות בינה מלאכותית.</small>
+            </label>
+          </>}
           <label>
             <span>כתובת אימייל</span>
             <input
@@ -118,7 +145,7 @@ export function AuthForm({ mode, initialError = '' }: AuthFormProps) {
         </form>
 
         <p className="auth-switch">
-          {isRegister ? 'כבר יש לכם חשבון?' : 'עדיין אין לכם חשבון?'}{' '}
+          {isRegister ? 'כבר יש חשבון?' : 'עדיין אין חשבון?'}{' '}
           <Link href={isRegister ? '/login' : '/register'}>
             {isRegister ? 'להתחברות' : 'פתיחת חשבון'}
           </Link>
@@ -126,7 +153,7 @@ export function AuthForm({ mode, initialError = '' }: AuthFormProps) {
       </section>
       <aside className="auth-aside" aria-hidden="true">
         <span className="auth-aside-label">STRAUSS BENEFITS</span>
-        <p>בחירה חכמה מתחילה<br />בנתונים שלך.</p>
+        <p>בחירה חכמה מתחילה<br />בנתונים הנכונים.</p>
         <div className="auth-aside-rule" />
       </aside>
     </main>

@@ -24,3 +24,7 @@ it('does not render an empty recommendation grid', () => {
   vi.stubGlobal('React',React);
   expect(renderToStaticMarkup(React.createElement(CatalogCards,{message:{...snapshot,cards:[]}}))).toBe('');
 });
+it.each(['profile_recall','conversation','hypothetical'] as const)('never renders a comparison selector or stale cards on a %s reply',purpose=>{
+  vi.stubGlobal('React',React);
+  expect(renderToStaticMarkup(React.createElement(CatalogCards,{message:{...snapshot,purpose},onSelect:()=>{}}))).toBe('');
+});

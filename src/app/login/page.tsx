@@ -2,7 +2,7 @@ import { AuthForm } from '@/components/auth-form';
 
 const messages: Record<string, string> = {
   profile: 'לא נמצא פרופיל פעיל לחשבון. פנו לתמיכה הארגונית.',
-  config: 'הגדרות ההתחברות חסרות. יש לפנות למנהלת המערכת.',
+  config: 'הגדרות ההתחברות חסרות. יש לפנות לצוות המערכת.',
   callback: 'קישור האישור אינו תקף או שפג תוקפו. בקשו קישור חדש.'
 };
 

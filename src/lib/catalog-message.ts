@@ -20,7 +20,7 @@ export const messageActionSchema = z.object({
 export const approvalBlockSchema = z.object({
   code: z.string().regex(/^[A-F0-9]{8}$/), basedOnVersion: z.number().int().positive().nullable(),
   rows: z.array(z.object({ label: z.string().min(1).max(80), value: z.string().min(1).max(120),
-    status: z.enum(['confirmed', 'new', 'changed', 'derived']) }).strict()).min(1).max(14)
+    status: z.enum(['confirmed', 'new', 'changed', 'derived', 'representative', 'payslip', 'corrected', 'account']) }).strict()).min(1).max(14)
 }).strict();
 const money = z.number().finite();
 export const calculationScenarioSchema = z.object({
@@ -38,14 +38,21 @@ export const calculationBlockSchema = z.object({
 }).strict();
 export const catalogMessageSchema = z.object({
   kind: z.literal('carwise.catalog.v1'), text: z.string().min(1).max(2000),
-  cards: z.array(catalogCardSchema).max(6), recordedAt: z.string().datetime(),
+  purpose:z.enum(['catalog','profile_recall','conversation','hypothetical']).optional(),
+  // Up to 24: a whole eligibility group (e.g. 13 cars for group C) fits, so nothing is silently cut off.
+  cards: z.array(catalogCardSchema).max(24), recordedAt: z.string().datetime(),
   rulesVersion: z.string().max(120).optional(),
   state: z.object({ group: groupSchema.optional(), groupSource: z.enum(['employee_reported','occupation_match']).optional(),
     awaitingGroup: z.boolean(), filters: catalogFiltersSchema }).strict(),
   approval: approvalBlockSchema.optional(), calculation: calculationBlockSchema.optional(),
-  actions: z.array(messageActionSchema).max(8).optional()
+  actions: z.array(messageActionSchema).max(8).optional(),
+  // The reply waits for a value that appears on a payslip: the chat offers the existing payslip upload under it.
+  payslipUpload: z.literal(true).optional()
 }).strict();
 export type CatalogMessage = z.infer<typeof catalogMessageSchema>;
+export function shouldRenderCatalog(message:CatalogMessage):boolean {
+  return message.cards.length>0 && (!message.purpose||message.purpose==='catalog');
+}
 export type CalculationScenario = z.infer<typeof calculationScenarioSchema>;
 export type MessageAction = z.infer<typeof messageActionSchema>;
 export function decodeCatalogMessage(body: string): CatalogMessage | null {

@@ -191,7 +191,7 @@ export default function Home() {
 
       {loading && (
         <p className="bg-white rounded-2xl p-6">
-          טוענת נתונים מ־Supabase...
+          הנתונים נטענים מ־Supabase...
         </p>
       )}
 
@@ -205,7 +205,7 @@ export default function Home() {
         <section className="grid md:grid-cols-2 gap-5">
           <label className="block bg-white p-6 rounded-2xl shadow-sm">
             <span className="block font-bold mb-3">
-              בחרי עובד/ת לדוגמה
+              בחירת פרופיל לדוגמה
             </span>
 
             <select
@@ -232,7 +232,7 @@ export default function Home() {
 
           <label className="block bg-white p-6 rounded-2xl shadow-sm">
             <span className="block font-bold mb-3">
-              בחרי חלופה
+              בחירת חלופה
             </span>
 
             <select
@@ -253,7 +253,7 @@ export default function Home() {
 
             {calculating && (
               <div className="mt-4 text-sm text-slate-600">
-                מחשבת השוואה...
+                ההשוואה בחישוב...
               </div>
             )}
 

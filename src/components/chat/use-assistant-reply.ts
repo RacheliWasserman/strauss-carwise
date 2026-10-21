@@ -15,7 +15,7 @@ function wait(signal: AbortSignal) {
 }
 function friendly(error: unknown) {
   if (error instanceof ChatApiError) {
-    if (error.status === 401) return 'ההודעה שלך נשמרה. כדי לקבל מענה, התחברי שוב לחשבון.';
+    if (error.status === 401) return 'ההודעה שלך נשמרה. כדי לקבל מענה, יש להתחבר שוב לחשבון.';
     if (error.code === 'AI_SAVE_UNCERTAIN') return 'אנחנו בודקים אם התשובה כבר נשמרה. ניסיון חוזר יבדוק את השמירה בלי ליצור תשובה כפולה.';
     if (error.status === 429) return 'ההודעה שלך נשמרה. כדאי להמתין מעט לפני בקשת מענה נוסף.';
   }

@@ -26,20 +26,38 @@ export const advisorStateSchema = z.object({
   // Employee-reported values. Never a confirmed profile until an approved version is written.
   // current_vehicle_id uses 'NONE' for "no company car today" (a waiver baseline).
   pendingFacts:z.array(z.object({field:factFieldSchema,value:z.union([z.string().max(120),z.number().finite().nonnegative()]),
-    sourceMessageId:z.string().uuid(),status:z.literal('pending_confirmation')})).max(12),
+    sourceMessageId:z.string().uuid(),status:z.literal('pending_confirmation'),
+    // A verified representative answer the employee chose to use, or a reviewed payslip value (unchanged from the
+    // document, or corrected by the employee). Every kind still needs the employee's approval in the summary.
+    source:z.enum(['representative','payslip','corrected']).optional()}).strict()).max(12),
   unknownFacts:z.array(factFieldSchema).max(12).optional(),
+  // Confirmed values the employee said are wrong in this conversation: not reused until replaced and approved.
+  // The saved version history is never changed by a dispute.
+  disputedFacts:z.array(factFieldSchema).max(12).optional(),
   // The single financial question currently displayed, and how many times in a row it was asked.
   pendingField:factFieldSchema.optional(),
   pendingFieldAsks:z.number().int().min(1).max(50).optional(),
-  shownVehicles:z.array(z.object({id:vehicleIdSchema,name:z.string().min(1).max(200)}).strict()).max(6).optional(),
+  shownVehicles:z.array(z.object({id:vehicleIdSchema,name:z.string().min(1).max(200)}).strict()).max(24).optional(),
   selectedVehicleIds:z.array(vehicleIdSchema).max(6).optional(),
+  // The employee's explicit financial goal. It survives corrections, representative consultation and approval,
+  // and is resumed once after a new profile version is approved. Only an explicit choice replaces it.
+  activeGoal:z.discriminatedUnion('kind',[
+    z.object({kind:z.literal('vehicles'),vehicleIds:z.array(vehicleIdSchema).min(1).max(6)}).strict(),
+    z.object({kind:z.literal('waiver')}).strict()
+  ]).optional(),
+  // Present on states that track activeGoal; older saved states get a one-time, conservative derivation.
+  goalTracking:z.literal(1).optional(),
   // Catalog vehicles the employee asked for before eligibility could be checked (occupation still unknown).
   vehicleInterest:z.array(vehicleIdSchema).max(6).optional(),
   pendingApproval:z.object({code:codeSchema,basedOnVersionId:z.string().uuid().nullable()}).strict().optional(),
   confirmedVersion:z.object({id:z.string().uuid(),version:z.number().int().positive()}).strict().optional(),
   calculations:z.array(z.object({key:z.string().regex(/^[a-f0-9]{64}$/),runId:z.string().uuid().nullable(),
     profileVersionId:z.string().uuid(),vehicleIds:z.array(vehicleIdSchema).max(6),waiver:z.boolean()}).strict()).max(20).optional(),
-  representative:z.object({status:z.enum(['offered','requested']),code:codeSchema,topic:z.string().min(1).max(120),
-    requestId:z.string().uuid().optional()}).strict().optional()
+  // 'superseded': the employee supplied the requested field themselves while the request was open; the request is
+  // cancelled (where the database allows) and a late answer is not applied over the employee's newer value.
+  representative:z.object({status:z.enum(['offered','requested','superseded']),code:codeSchema,topic:z.string().min(1).max(120),
+    requestId:z.string().uuid().optional(),
+    // The missing field this request asks about, and answers already used (duplicate clicks change nothing).
+    field:factFieldSchema.optional(),usedAnswerIds:z.array(z.string().uuid()).max(10).optional()}).strict().optional()
 }).strict();
 export type AdvisorState = z.infer<typeof advisorStateSchema>;

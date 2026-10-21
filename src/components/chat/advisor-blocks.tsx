@@ -6,7 +6,7 @@ const signed = (value: number) => {
   const rounded = Math.round(value);
   return rounded === 0 ? '0 ₪' : `${rounded > 0 ? '+' : '−'}${Math.abs(rounded).toLocaleString('he-IL')} ₪`;
 };
-const STATUS: Record<string, string> = { confirmed: 'מאושר', new: 'חדש', changed: 'עודכן', derived: 'נגזר' };
+const STATUS: Record<string, string> = { confirmed: 'מאושר', new: 'חדש', changed: 'עודכן', derived: 'נגזר', representative: 'מנציג', payslip: 'מתלוש', corrected: 'תוקן ידנית', account: 'מהחשבון' };
 
 export function ApprovalSummary({ approval }: { approval: NonNullable<CatalogMessage['approval']> }) {
   return <section className="cw-approval" aria-label="סיכום פרטים לאישור" dir="rtl">

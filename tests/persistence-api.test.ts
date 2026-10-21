@@ -1,9 +1,10 @@
-import { beforeEach, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   profile: vi.fn(), role: vi.fn(), create: vi.fn(), list: vi.fn(),
-  conversation: vi.fn(), messages: vi.fn(), send: vi.fn()
+  conversation: vi.fn(), messages: vi.fn(), send: vi.fn(), request: vi.fn()
 }));
+vi.mock('../src/lib/representative-request-repository', () => ({ getRequestForRepresentative: mocks.request }));
 vi.mock('@/lib/require-authenticated-user', () => ({ getAuthenticatedProfile: mocks.profile }));
 vi.mock('@/lib/persistence-api-auth', () => ({ requireApiRole: mocks.role }));
 vi.mock('@/lib/conversation-repository', () => ({
@@ -16,7 +17,7 @@ vi.mock('@/lib/conversation-repository', () => ({
 vi.mock('@/lib/persistence-validation', async () => import('../src/lib/persistence-validation'));
 
 import { POST, GET as getConversationList } from '../src/app/api/conversations/route';
-import { GET } from '../src/app/api/conversations/[conversationId]/messages/route';
+import { GET, POST as postMessage } from '../src/app/api/conversations/[conversationId]/messages/route';
 import { GET as getConversationDetails } from '../src/app/api/conversations/[conversationId]/route';
 
 const id = '9a9dd2bf-2c8f-41d5-b160-842aa36baa19';
@@ -71,18 +72,11 @@ it('denies unauthenticated message reads', async () => {
   expect(mocks.messages).not.toHaveBeenCalled();
 });
 
-it('allows an assigned representative to load conversation details through user-scoped access', async () => {
+it('never lets a representative read conversation details or messages, even when assigned (least privilege)', async () => {
   mocks.profile.mockResolvedValue({ userId: 'assigned-rep', role: 'representative' });
-  const response = await getConversationDetails(new Request(`http://localhost/api/conversations/${id}`), params());
-  expect(response.status).toBe(200);
-  expect(mocks.conversation).toHaveBeenCalledWith(id, 'assigned-rep', 'representative');
-});
-
-it('returns 404 when RLS hides conversation details from another representative', async () => {
-  mocks.profile.mockResolvedValue({ userId: 'other-rep', role: 'representative' });
-  mocks.conversation.mockResolvedValue(null);
-  const response = await getConversationDetails(new Request(`http://localhost/api/conversations/${id}`), params());
-  expect(response.status).toBe(404);
+  expect((await getConversationDetails(new Request(`http://localhost/api/conversations/${id}`), params())).status).toBe(403);
+  expect((await GET(new Request(`http://localhost/api/conversations/${id}/messages`), params())).status).toBe(403);
+  expect(mocks.conversation).not.toHaveBeenCalled();expect(mocks.messages).not.toHaveBeenCalled();
 });
 
 it('reads the same saved conversation after repeated refresh and a new authenticated session', async () => {
@@ -121,4 +115,30 @@ it('allows paging to older saved conversations beyond the first list page', asyn
   expect(response.status).toBe(200);
   expect(mocks.list).toHaveBeenCalledWith('employee', { createdAt: timestamp, id }, 1);
   expect((await response.json()).nextCursor).toEqual({ before: timestamp, beforeId: id });
+});
+
+describe('representative structured answers through the real messages route', () => {
+  const requestId = 'b1f6a4b8-6a7e-4b52-9b0f-0c5d2a1e9f11';
+  const answer = (value: number, field = 'current_participation') => JSON.stringify({ kind: 'carwise.rep-answer.v1', requestId, field, value, answeredAt: '2026-10-21T10:00:00.000Z' });
+  const post = (body: string) => postMessage(new Request('http://localhost/x', { method: 'POST', body: JSON.stringify({ body }) }), params());
+  const request = (status: string, assigned = 'rep') => ({ id: requestId, conversation_id: id, status, topic: 'שדה חסר: השתתפות חודשית ברכב היום [current_participation]', assigned_representative_id: assigned });
+  beforeEach(() => { mocks.profile.mockResolvedValue({ userId: 'rep', role: 'representative' }); mocks.send.mockResolvedValue({ id: 'm' }); });
+  it('stores the first valid answer of the assigned representative', async () => {
+    mocks.request.mockResolvedValue(request('claimed'));
+    expect((await post(answer(300))).status).toBe(201);expect(mocks.send).toHaveBeenCalledTimes(1);
+  });
+  it('rejects a second answer to an already answered request (409) without storing it', async () => {
+    mocks.request.mockResolvedValue(request('answered'));
+    const response = await post(answer(320));
+    expect(response.status).toBe(409);expect((await response.json()).error).toContain('כבר נשלחה');expect(mocks.send).not.toHaveBeenCalled();
+  });
+  it.each([
+    ['another representative', () => request('claimed', 'other-rep'), answer(300)],
+    ['a different field', () => request('claimed'), answer(300, 'bonus')],
+    ['an out-of-range value', () => request('claimed'), answer(-5)],
+    ['a malformed answer', () => request('claimed'), '{"kind":"carwise.rep-answer.v1","value":"x"}']
+  ])('rejects %s without storing it', async (_label, row, body) => {
+    mocks.request.mockResolvedValue(row());
+    expect((await post(body)).status).toBe(400);expect(mocks.send).not.toHaveBeenCalled();
+  });
 });

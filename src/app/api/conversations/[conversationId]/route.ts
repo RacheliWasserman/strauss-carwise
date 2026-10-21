@@ -17,6 +17,11 @@ export async function GET(
     return NextResponse.json({ error: 'נדרשת התחברות' }, { status: 401 });
   }
 
+  // Least privilege: a representative answers one missing field through the request itself and never reads the
+  // employee's conversation or its salary details (the queue and their own answers have dedicated endpoints).
+  if (profile.role !== 'employee') {
+    return NextResponse.json({ error: 'אין הרשאה לפעולה הזו' }, { status: 403 });
+  }
   const { conversationId } = await params;
   if (!idSchema.safeParse(conversationId).success) {
     return NextResponse.json({ error: 'מזהה השיחה אינו תקין' }, { status: 400 });

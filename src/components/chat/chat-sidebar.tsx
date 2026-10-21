@@ -10,7 +10,11 @@ type Props = {
   open: boolean; locked: boolean; loading: boolean; error: string | null; hasMore: boolean;
   onClose: () => void; onSelect: (id: string | null) => void;
   onLoadMore: () => void; onRetry: () => void;
+  /** The signed-in account's stored name, when the identity record exists. */
+  account?: { firstName: string; fullName: string };
 };
+/** Up to two initials from the stored name, for the account avatar. */
+export const initials = (fullName: string) => fullName.split(/[\s-]+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('');
 function groupLabel(value: string) {
   const date = new Date(value), today = new Date();
   if (date.toDateString() === today.toDateString()) return 'היום';
@@ -52,7 +56,7 @@ export function ChatSidebar(props: Props) {
       <button className="cw-new-chat" disabled={props.locked} onClick={() => props.onSelect(null)}><ChatIcon name="plus" /><span>שיחה חדשה</span><span className="cw-new-chat-corner">↗</span></button>
       <div className="cw-history-heading"><span>השיחות שלך</span><ChatIcon name="clock" /></div>
       <nav className="cw-history" aria-label="בחירת שיחה" aria-busy={props.loading}>
-        {props.loading && props.conversations.length === 0 && <div className="cw-history-skeleton" role="status" aria-label="טוענת שיחות"><i /><i /><i /></div>}
+        {props.loading && props.conversations.length === 0 && <div className="cw-history-skeleton" role="status" aria-label="השיחות בטעינה"><i /><i /><i /></div>}
         {!props.loading && !props.error && props.conversations.length === 0 && <div className="cw-history-empty"><ChatIcon name="chat" /><p>השיחה הראשונה שלך<br />מתחילה כאן.</p><span>כל השיחות יישמרו במקום אחד</span></div>}
         {props.conversations.map((conversation, index) => {
           const group = groupLabel(conversation.last_message_at);
@@ -69,10 +73,10 @@ export function ChatSidebar(props: Props) {
           </div>;
         })}
         {props.error && <div className="cw-sidebar-error" role="alert"><p>{props.error}</p><button onClick={props.onRetry} disabled={props.loading}>ניסיון חוזר</button></div>}
-        {props.hasMore && <button className="cw-history-more" onClick={props.onLoadMore} disabled={props.loading}>{props.loading ? 'טוענת שיחות…' : 'שיחות נוספות'}<ChatIcon name="down" /></button>}
+        {props.hasMore && <button className="cw-history-more" onClick={props.onLoadMore} disabled={props.loading}>{props.loading ? 'בטעינה…' : 'שיחות נוספות'}<ChatIcon name="down" /></button>}
       </nav>
       <div className="cw-sidebar-note"><ChatIcon name="shield" /><p>אפשר לעצור ולחזור.<br /><span>השיחות נשארות בחשבון שלך.</span></p></div>
-      <div className="cw-account"><span className="cw-account-avatar"><ChatIcon name="user" /></span><div><strong>האזור האישי שלך</strong><span>STRAUSS · EMPLOYEE</span></div><LogoutButton /></div>
+      <div className="cw-account"><span className="cw-account-avatar" aria-hidden="true">{props.account ? initials(props.account.fullName) : <ChatIcon name="user" />}</span><div><strong>{props.account?.fullName ?? 'האזור האישי שלך'}</strong><span>{props.account ? 'האזור האישי · STRAUSS' : 'STRAUSS · EMPLOYEE'}</span></div><LogoutButton /></div>
     </aside>
   </>;
 }
