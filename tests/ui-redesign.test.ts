@@ -112,7 +112,9 @@ describe('sign-in and registration', () => {
     expect(html).toContain('בחירה חכמה מתחילה בנתונים הנכונים.');
     expect(html).toMatch(/<input type="email" autoComplete="email" dir="ltr"[^>]*value=""\/>/);
     expect(html).toMatch(/<input type="password" autoComplete="current-password" dir="ltr"/);
-    expect(html).not.toMatch(/@[a-z0-9-]+\.[a-z]/i);
+    // The owner explicitly approved this public demo account; real account credentials are never prefilled.
+    expect(html).toContain('carwise.rep2@example.com');
+    expect(html).toContain('כניסת נציג — סביבת הדגמה');
   });
   it('the password field has a labelled show/hide toggle', () => {
     const html = render(React.createElement(PasswordField, { value: '', onChange: () => undefined, autoComplete: 'new-password' }));

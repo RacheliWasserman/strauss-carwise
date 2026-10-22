@@ -7,6 +7,7 @@ import { getHebrewAuthError } from '@/lib/auth-errors';
 import { AuthAside } from './auth-visuals';
 import { BrandLockup } from './brand/brand-lockup';
 import { CarWiseCarLoader } from './ui/carwise-car-loader';
+import { RepresentativeDemoCard, REPRESENTATIVE_DEMO_LOGIN } from './representative-demo-card';
 
 type AuthFormProps = {
   mode: 'login' | 'register';
@@ -98,7 +99,7 @@ export function AuthForm({ mode, initialError = '' }: AuthFormProps) {
   }
 
   return (
-    <main className="auth-shell" dir="rtl">
+    <main className={isRegister ? 'auth-shell' : 'auth-shell auth-shell-demo'} dir="rtl">
       <section className={isRegister ? 'auth-panel auth-panel-compact' : 'auth-panel'}>
         <BrandLockup tone="dark" size="sm" className="auth-panel-brand" />
         <p className="auth-eyebrow">גישה מאובטחת לעובדי שטראוס</p>
@@ -109,6 +110,8 @@ export function AuthForm({ mode, initialError = '' }: AuthFormProps) {
             : 'מתחברים כדי להמשיך ליועץ הרכב וההטבות.'}
         </p>
 
+        <div className={isRegister ? undefined : 'auth-login-grid'}>
+        <div>
         {/* The first focus in the form starts loading what submitting needs, so the click itself does not wait. */}
         <form onSubmit={submit} className="auth-form" noValidate={isRegister} aria-busy={pending}
           onFocusCapture={() => { void (isRegister ? import('@/lib/identity/employee-identity') : import('@/lib/supabase-browser')).catch(() => undefined); }}>
@@ -166,6 +169,12 @@ export function AuthForm({ mode, initialError = '' }: AuthFormProps) {
             {isRegister ? 'להתחברות' : 'פתיחת חשבון'}
           </Link>
         </p>
+        </div>
+        {!isRegister && <RepresentativeDemoCard disabled={pending} onFill={() => {
+          setEmail(REPRESENTATIVE_DEMO_LOGIN.email); setPassword(REPRESENTATIVE_DEMO_LOGIN.password);
+          setError(''); setMessage('פרטי הנציג מולאו. לחצו על התחברות כדי להיכנס.');
+        }} />}
+        </div>
       </section>
       <AuthAside />
     </main>

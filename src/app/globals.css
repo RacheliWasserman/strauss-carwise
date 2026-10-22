@@ -39,6 +39,29 @@ input[dir="auto"]::placeholder,textarea[dir="auto"]::placeholder,.cw-placeholder
 .auth-panel h1{margin:0;color:#163a3f;font-size:36px;font-weight:750;letter-spacing:-.6px;line-height:1.2}
 .auth-intro{margin:10px 0 30px;color:#5f6e6a;line-height:1.75;font-size:15px}
 .auth-form{display:grid;gap:18px}
+.auth-login-grid{display:grid;gap:24px;align-items:start}
+.auth-demo-card{padding:22px;border:1px solid #d7e3dd;border-radius:20px;background:linear-gradient(145deg,#f0f6f2,#faf8f2);box-shadow:0 8px 28px rgb(22 58 63 / 5%)}
+.auth-demo-tag{display:inline-block;padding:4px 10px;border-radius:20px;background:#dfede5;color:#286052;font-size:11px;font-weight:700}
+.auth-demo-card h2{margin:12px 0 8px;font-size:19px;line-height:1.5;color:#163a3f}
+.auth-demo-card p,.auth-demo-card small{color:#53665f;font-size:13px;line-height:1.8}
+.auth-demo-card dl{display:grid;gap:12px;margin:18px 0}
+.auth-demo-card dt{font-size:12px;font-weight:700;color:#53665f}
+.auth-demo-card dd{margin:4px 0 0;font-size:14px;overflow-wrap:anywhere;color:#163a3f}
+.auth-demo-card button{width:100%;padding:12px;border:1px solid #b7cfc2;border-radius:12px;background:#fff;color:#205747;font-size:13px;font-weight:700;cursor:pointer}
+.auth-demo-card button:hover{background:#e8f1eb}.auth-demo-card button:focus-visible{outline:3px solid #287365;outline-offset:3px}
+.auth-demo-card button:disabled{opacity:.6;cursor:wait}.auth-demo-card small{display:block;margin-top:10px;font-size:11px}
+@media(min-width:900px){
+  .auth-shell-demo{grid-template-columns:minmax(0,2fr) minmax(0,1fr)}
+  .auth-shell-demo .auth-panel{width:min(100%,760px);align-self:start;padding:24px}
+  .auth-shell-demo .auth-panel-brand{margin-bottom:18px}
+  .auth-shell-demo .auth-intro{margin-bottom:18px}
+  .auth-shell-demo .auth-form{gap:14px}
+  .auth-shell-demo .auth-switch{margin-top:16px}
+  .auth-login-grid{grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:20px}
+  .auth-demo-card{padding:18px}
+  .auth-demo-card h2{font-size:17px}
+  .auth-demo-card dl{margin:14px 0;gap:10px}
+}
 .auth-form label{display:grid;gap:8px;color:#2f4440;font-size:14px;font-weight:700}
 .auth-form input{width:100%;height:50px;border:1px solid #ddd6ca;border-radius:12px;background:#fff;padding:0 14px;color:#172a32;font-size:16px;font-weight:400;outline:none;transition:border-color .15s,box-shadow .15s}
 .auth-form input[dir="ltr"]{text-align:left}
