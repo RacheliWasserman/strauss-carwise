@@ -75,7 +75,7 @@ it('opens a chat comparison only for 2–3 distinct active catalog vehicles', as
 });
 
 it('answers rapid repeated requests independently, each for the signed-in employee only', async () => {
-  const body = { preferences: { powertrain: 'any', travelers: 'couple', priorities: ['cost'], charging: 'home', finance: 'balanced' } };
+  const body = { preferences: { powertrain: 'any', travelers: 'couple', priorities: ['cost'], charging: ['home'], finance: 'balanced' } };
   const responses = await Promise.all(Array.from({ length: 5 }, () => call(body)));
   const payloads = await Promise.all(responses.map(response => response.json()));
   expect(responses.every(response => response.status === 200)).toBe(true);
@@ -85,7 +85,7 @@ it('answers rapid repeated requests independently, each for the signed-in employ
 
 it('rejects forged lifestyle fields before reading any data', async () => {
   for (const preferences of [{ powertrain: 'any', priorities: ['cost', 'city', 'energy', 'technology'] }, { powertrain: 'any', seats: '9' },
-    { powertrain: 'any', needs: ['seats7'], needsStrength: 'hard', group: 'ד' }, { powertrain: 'any', trunkLiters: 900 }]) {
+    { powertrain: 'any', seats: '7', seatsStrength: 'hard', group: 'ד' }, { powertrain: 'any', trunkLiters: 900 }]) {
     expect((await call({ preferences })).status).toBe(400);
   }
   expect(mocks.context).not.toHaveBeenCalled();

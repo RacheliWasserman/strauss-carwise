@@ -14,13 +14,18 @@ export type MatchPowertrain = typeof MATCH_POWERTRAINS[number];
 export const MAX_RECOMMENDATIONS = 3;
 export const TRAVELERS = ['solo', 'couple', 'small_family', 'large_family', 'varies'] as const;
 export const SEAT_NEEDS = ['2', '4', '5', '7', 'any'] as const;
-export const PRIORITIES = ['cost', 'family_space', 'large_trunk', 'long_trips', 'city', 'technology', 'energy'] as const;
+export const PRIORITIES = ['cost', 'family_space', 'large_trunk', 'long_trips', 'city', 'high_body', 'technology', 'energy'] as const;
 export const DRIVING = ['city', 'mixed', 'long', 'all'] as const;
 export const DISTANCES = ['low', 'mid', 'high', 'unsure'] as const;
 export const CHARGING = ['home', 'work', 'public', 'none', 'unknown'] as const;
-export const NEEDS = ['seats5', 'seats7', 'large_trunk', 'compact', 'high_body'] as const;
 export const FINANCE = ['net_first', 'balanced', 'fit_first'] as const;
-export type Need = typeof NEEDS[number];
+type Need = 'seats2' | 'seats4' | 'seats5' | 'seats7';
+export type ChargingAccess = typeof CHARGING[number];
+export function toggleCharging(current: ChargingAccess[], value: ChargingAccess): ChargingAccess[] {
+  if (current.includes(value)) return current.filter(item => item !== value);
+  if (value === 'none' || value === 'unknown') return [value];
+  return [...current.filter(item => item !== 'none' && item !== 'unknown'), value];
+}
 export type Priority = typeof PRIORITIES[number];
 
 const unique = <T>(list: T[]) => new Set(list).size === list.length;
@@ -33,17 +38,17 @@ export const matchPreferencesSchema = z.object({
   family: z.enum(['include', 'exclude']).optional(),
   travelers: z.enum(TRAVELERS).optional(),
   seats: z.enum(SEAT_NEEDS).optional(),
+  seatsStrength: z.enum(['hard', 'soft']).optional(),
   priorities: z.array(z.enum(PRIORITIES)).max(3).refine(unique).optional(),
   driving: z.enum(DRIVING).optional(),
   distance: z.enum(DISTANCES).optional(),
-  charging: z.enum(CHARGING).optional(),
-  needs: z.array(z.enum(NEEDS)).max(NEEDS.length).refine(unique).optional(),
-  needsStrength: z.enum(['hard', 'soft']).optional(),
+  charging: z.array(z.enum(CHARGING)).max(3).refine(unique)
+    .refine(values => !values.some(value => value === 'none' || value === 'unknown') || values.length === 1).optional(),
   finance: z.enum(FINANCE).optional()
 }).strict().refine(value => value.powertrain === 'any' ? !value.strength && !value.priority : Boolean(value.strength),
   { message: 'A powertrain preference needs its strength' })
   .refine(value => !value.priority || value.strength === 'soft', { message: 'Priority applies to a soft preference only' })
-  .refine(value => !value.needsStrength || Boolean(value.needs?.length), { message: 'Requirement strength needs requirements' });
+  .refine(value => !value.seatsStrength || Boolean(value.seats && value.seats !== 'any'), { message: 'Seat strength needs a seat requirement' });
 export type MatchPreferences = z.infer<typeof matchPreferencesSchema>;
 
 /**
@@ -99,8 +104,7 @@ export type MatchQuestion = 'priority' | 'family';
 
 const POWERTRAIN_LABEL: Record<string, string> = { 'חשמלי': 'חשמלי', 'היברידי': 'היברידי', 'פלאג-אין': 'פלאג־אין', 'בנזין': 'בנזין' };
 export const powertrainLabel = (value: string) => POWERTRAIN_LABEL[value] ?? value;
-export const NEED_LABEL: Record<Need, string> = { seats5: 'לפחות 5 מקומות', seats7: '7 מקומות ומעלה', large_trunk: 'תא מטען גדול',
-  compact: 'רכב קומפקטי לעיר', high_body: 'מרכב גבוה / SUV' };
+const NEED_LABEL: Record<Need, string> = { seats2: 'לפחות 2 מקומות', seats4: 'לפחות 4 מקומות', seats5: 'לפחות 5 מקומות', seats7: '7 מקומות ומעלה' };
 export const BODY_LABEL: Record<NonNullable<VehicleProfile['bodyType']>, string> = { hatchback: 'האצ׳בק', sedan: 'סדאן', small_suv: 'קרוסאובר קטן',
   suv: 'SUV', crossover: 'קרוסאובר', minivan: 'מיניוואן' };
 const TRAVELER_LABEL: Record<typeof TRAVELERS[number], string> = { solo: 'נסיעה לבד', couple: 'זוג', small_family: 'משפחה קטנה',
@@ -123,20 +127,11 @@ export function powertrainFit(candidate: Pick<MatchCandidate, 'id' | 'drive_type
 
 /** A mandatory requirement against model-level data: contradicted vehicles are excluded; the rest are never "verified". */
 export function requirementStatus(need: Need, profile: VehicleProfile = {}): 'consistent' | 'contradicted' | 'unknown' {
-  const check = (value: unknown, ok: boolean) => value === undefined ? 'unknown' : ok ? 'consistent' : 'contradicted';
-  switch (need) {
-    case 'seats5': return check(profile.seats, (profile.seats ?? 0) >= 5);
-    case 'seats7': return check(profile.seats, (profile.seats ?? 0) >= 7);
-    case 'large_trunk': return check(profile.trunkLiters, (profile.trunkLiters ?? 0) >= LARGE_TRUNK_LITERS);
-    case 'compact': return check(profile.sizeClass, ['small', 'compact'].includes(profile.sizeClass ?? ''));
-    case 'high_body': return check(profile.bodyType, HIGH_BODIES.includes(profile.bodyType ?? ''));
-  }
+  return profile.seats === undefined ? 'unknown' : profile.seats >= Number(need.slice(5)) ? 'consistent' : 'contradicted';
 }
 
 function seatsNeeded(preferences: MatchPreferences) {
-  const fromQuestion = preferences.seats && preferences.seats !== 'any' ? Number(preferences.seats) : 0;
-  const fromNeeds = preferences.needsStrength !== 'hard' ? Math.max(preferences.needs?.includes('seats7') ? 7 : 0, preferences.needs?.includes('seats5') ? 5 : 0) : 0;
-  return Math.max(fromQuestion, fromNeeds);
+  return preferences.seatsStrength !== 'hard' && preferences.seats && preferences.seats !== 'any' ? Number(preferences.seats) : 0;
 }
 
 /** info: said to the employee but not a criterion (never scored, never counted as evidence). */
@@ -147,7 +142,6 @@ function signals(candidate: MatchCandidate, preferences: MatchPreferences, pool:
   const profile = candidate.profile ?? {};
   const list: Signal[] = [];
   const priorities = preferences.priorities ?? [];
-  const soft = preferences.needsStrength !== 'hard' ? preferences.needs ?? [] : [];
   const drive = POWERTRAIN_UNDER_REVIEW[candidate.id] ? null : candidate.drive_type;
 
   // Practical / family.
@@ -167,7 +161,7 @@ function signals(candidate: MatchCandidate, preferences: MatchPreferences, pool:
         reason: scale[profile.sizeClass] >= 0.85 ? `דגם בגודל ${profile.sizeClass === 'large_family' ? 'משפחתי גדול' : 'משפחתי'} — מתאים ל${who} (${MODEL_LEVEL}).` : undefined,
         tradeoff: scale[profile.sizeClass] <= 0.4 ? `דגם ${profile.sizeClass === 'small' ? 'קטן' : 'קומפקטי'} יחסית ל${who} (${MODEL_LEVEL}).` : undefined });
   }
-  if (priorities.includes('large_trunk') || soft.includes('large_trunk') || preferences.travelers === 'large_family') {
+  if (priorities.includes('large_trunk') || preferences.travelers === 'large_family') {
     // Absolute documented scale: 300 L → 0, 600 L → 1.
     const trunk = profile.trunkLiters;
     list.push(trunk === undefined ? { dimension: 'practical', score: null, missing: 'אין נתון על נפח תא המטען.' }
@@ -212,7 +206,8 @@ function signals(candidate: MatchCandidate, preferences: MatchPreferences, pool:
       reason: fit === 'match' ? `סוג ההנעה (${powertrainLabel(candidate.drive_type)}) תואם להעדפה שלך.` : undefined,
       tradeoff: fit === 'other' ? `סוג ההנעה (${powertrainLabel(candidate.drive_type)}) שונה מההעדפה שלך (${powertrainLabel(preferences.powertrain)}).` : undefined });
   }
-  const charging = preferences.charging;
+  // Use the strongest available access once, never add multiple charging scores.
+  const charging = CHARGING.find(value => preferences.charging?.includes(value));
   if (charging && charging !== 'unknown') {
     if (!drive) list.push({ dimension: 'powertrain', score: null });
     else if (drive === 'חשמלי') {
@@ -235,13 +230,9 @@ function signals(candidate: MatchCandidate, preferences: MatchPreferences, pool:
   }
 
   // Other supported preferences: body style and size as a preference.
-  if (soft.includes('compact')) {
-    const status = requirementStatus('compact', profile);
-    list.push({ dimension: 'other', score: status === 'unknown' ? null : status === 'consistent' ? 1 : 0,
-      reason: status === 'consistent' ? `רכב קומפקטי (${MODEL_LEVEL}).` : undefined, missing: status === 'unknown' ? 'אין נתון על גודל הרכב.' : undefined });
-  }
-  if (soft.includes('high_body')) {
-    const status = requirementStatus('high_body', profile);
+  // Compact-city fit is already evaluated by the city priority, without a duplicate question.
+  if (priorities.includes('high_body')) {
+    const status = profile.bodyType === undefined ? 'unknown' : HIGH_BODIES.includes(profile.bodyType) ? 'consistent' : 'contradicted';
     list.push({ dimension: 'other', score: status === 'unknown' ? null : status === 'consistent' ? 1 : 0,
       reason: status === 'consistent' && profile.bodyType ? `מרכב ${BODY_LABEL[profile.bodyType]} (${MODEL_LEVEL}).` : undefined,
       missing: status === 'unknown' ? 'אין נתון על סוג המרכב.' : undefined });
@@ -296,7 +287,7 @@ function byNet(a: MatchCandidate, b: MatchCandidate) {
 
 export function rankVehicles(candidates: MatchCandidate[], preferences: MatchPreferences): MatchOutcome {
   const excluded = { current: 0, family: 0, powertrain: 0, underReview: 0, requirement: 0 };
-  const hard = preferences.needsStrength === 'hard' ? preferences.needs ?? [] : [];
+  const hard: Need[] = preferences.seatsStrength === 'hard' && preferences.seats && preferences.seats !== 'any' ? [`seats${preferences.seats}`] : [];
   const pool = candidates.filter(candidate => {
     if (candidate.current) { excluded.current++; return false; }
     if (candidate.family && preferences.family === 'exclude') { excluded.family++; return false; }
@@ -322,7 +313,7 @@ export function rankVehicles(candidates: MatchCandidate[], preferences: MatchPre
   const best = estimated.length ? estimated.reduce((winner, item) => byNet(item, winner) < 0 ? item : winner) : undefined;
   const bestOtherPowertrain = preferences.powertrain === 'any' ? undefined
     : estimated.filter(candidate => powertrainFit(candidate, preferences) !== 'match').sort(byNet)[0];
-  const trunkActive = Boolean(preferences.priorities?.includes('large_trunk') || preferences.needs?.includes('large_trunk') || preferences.travelers === 'large_family');
+  const trunkActive = Boolean(preferences.priorities?.includes('large_trunk') || preferences.travelers === 'large_family');
   const largestTrunk = Math.max(0, ...top.map(item => item.candidate.profile?.trunkLiters ?? 0));
   const topDelta = (item?: Scored) => item?.candidate.financial.status === 'estimate' ? item.candidate.financial.delta : null;
   const bestRecDelta = Math.max(...top.map(item => topDelta(item) ?? -Infinity));

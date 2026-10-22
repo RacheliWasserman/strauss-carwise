@@ -11,8 +11,8 @@ import { useConversationList } from '../catalog/catalog-app';
 import { VehiclePhoto } from '../catalog/vehicle-photo';
 import { CarWiseCarLoader } from '../ui/carwise-car-loader';
 import { FAMILY_GROUP, groupLabel, netImpactHref, propulsion } from '@/lib/catalog/showroom';
-import { BODY_LABEL, NEED_LABEL, POWERTRAIN_UNDER_REVIEW, powertrainLabel, type CHARGING, type DISTANCES, type DRIVING, type FINANCE,
-  type MatchPowertrain, type MatchPreferences, type MatchQuestion, type MatchRecommendation, type MatchResponse, type Need, type Priority,
+import { BODY_LABEL, POWERTRAIN_UNDER_REVIEW, powertrainLabel, toggleCharging, type ChargingAccess, type CHARGING, type DISTANCES, type DRIVING, type FINANCE,
+  type MatchPowertrain, type MatchPreferences, type MatchQuestion, type MatchRecommendation, type MatchResponse, type Priority,
   type SEAT_NEEDS, type TRAVELERS } from '@/lib/match/match-engine';
 import '../chat/employee-chat.css';
 import '../catalog/catalog.css';
@@ -22,14 +22,14 @@ type Ready = Extract<MatchResponse, { status: 'ready' }>;
 /** The questionnaire as the employee fills it in; turned into validated preferences only on submit. */
 type Answers = {
   travelers?: typeof TRAVELERS[number]; seats?: typeof SEAT_NEEDS[number]; priorities: Priority[];
-  driving?: typeof DRIVING[number]; distance?: typeof DISTANCES[number]; charging?: typeof CHARGING[number];
-  powertrain: 'any' | MatchPowertrain; strength: 'hard' | 'soft'; needs: Need[]; needsStrength: 'hard' | 'soft';
+  driving?: typeof DRIVING[number]; distance?: typeof DISTANCES[number]; charging: ChargingAccess[];
+  powertrain: 'any' | MatchPowertrain; strength: 'hard' | 'soft'; seatsStrength?: 'hard' | 'soft';
   finance?: typeof FINANCE[number]; family?: 'include' | 'exclude'; priority?: 'net' | 'powertrain';
 };
-type StepId = 'travelers' | 'priorities' | 'driving' | 'powertrain' | 'needs' | 'finance';
+type StepId = 'travelers' | 'priorities' | 'driving' | 'powertrain' | 'finance';
 type View = { kind: 'loading' } | { kind: 'error'; auth: boolean } | { kind: 'profile' } | { kind: 'intro' } | { kind: 'step'; step: StepId }
   | { kind: 'summary' } | { kind: 'question'; question: MatchQuestion } | { kind: 'results' };
-const EMPTY: Answers = { priorities: [], powertrain: 'any', strength: 'soft', needs: [], needsStrength: 'soft' };
+const EMPTY: Answers = { priorities: [], powertrain: 'any', strength: 'soft', charging: [] };
 const MAX_FOLLOW_UPS = 2;
 
 const TRAVELER_OPTIONS: Array<{ value: typeof TRAVELERS[number]; label: string; icon: ChatIconName }> = [
@@ -42,6 +42,7 @@ const PRIORITY_OPTIONS: Array<{ value: Priority; label: string; icon: ChatIconNa
   { value: 'cost', label: 'חיסכון בעלויות', icon: 'wallet', hint: 'לפי אומדן הנטו' }, { value: 'family_space', label: 'מרחב למשפחה', icon: 'users' },
   { value: 'large_trunk', label: 'תא מטען גדול', icon: 'layers' }, { value: 'long_trips', label: 'נוחות לנסיעות ארוכות', icon: 'route' },
   { value: 'city', label: 'קל לתמרון וחניה בעיר', icon: 'car' }, { value: 'technology', label: 'טכנולוגיה ואבזור', icon: 'spark', hint: 'אין נתונים בקטלוג' },
+  { value: 'high_body', label: 'מרכב גבוה / SUV', icon: 'car' },
   { value: 'energy', label: 'חיסכון בדלק או בחשמל', icon: 'leaf', hint: 'אין נתוני צריכת דלק בקטלוג' }];
 const DRIVING_OPTIONS: Array<{ value: typeof DRIVING[number]; label: string; icon: ChatIconName }> = [
   { value: 'city', label: 'בעיקר בתוך העיר', icon: 'car' }, { value: 'mixed', label: 'עיר ובין־עירוני', icon: 'route' },
@@ -52,16 +53,13 @@ const CHARGING_OPTIONS: Array<{ value: typeof CHARGING[number]; label: string; i
   { value: 'home', label: 'יש טעינה בבית', icon: 'plug' }, { value: 'work', label: 'יש טעינה בעבודה', icon: 'plug' },
   { value: 'public', label: 'גישה לטעינה ציבורית', icon: 'zap' }, { value: 'none', label: 'אין אפשרות טעינה קבועה', icon: 'close' },
   { value: 'unknown', label: 'לא ידוע לי', icon: 'info' }];
-const NEED_OPTIONS: Array<{ value: Need; icon: ChatIconName }> = [
-  { value: 'seats5', icon: 'users' }, { value: 'seats7', icon: 'users' }, { value: 'large_trunk', icon: 'layers' },
-  { value: 'compact', icon: 'car' }, { value: 'high_body', icon: 'car' }];
 const FINANCE_OPTIONS: Array<{ value: typeof FINANCE[number]; label: string; hint: string; icon: ChatIconName }> = [
   { value: 'net_first', label: 'הכי חשוב לי לשמור על הנטו', hint: 'אומדן הנטו מקבל משקל כפול', icon: 'wallet' },
   { value: 'balanced', label: 'איזון בין עלות לנוחות', hint: 'משקל רגיל לכל השיקולים', icon: 'layers' },
   { value: 'fit_first', label: 'אפשר להתפשר קצת על הנטו בשביל התאמה טובה יותר', hint: 'ההתאמה לאורח החיים קודמת', icon: 'spark' }];
-const STEPS: Array<{ id: StepId; title: string }> = [
+export const STEPS: Array<{ id: StepId; title: string }> = [
   { id: 'travelers', title: 'נוסעים' }, { id: 'priorities', title: 'מה חשוב' }, { id: 'driving', title: 'נסיעות' },
-  { id: 'powertrain', title: 'סוג רכב' }, { id: 'needs', title: 'דרישות' }, { id: 'finance', title: 'כלכלה' }];
+  { id: 'powertrain', title: 'סוג רכב' }, { id: 'finance', title: 'כלכלה' }];
 const labelOf = <T extends string>(options: Array<{ value: T; label?: string }>, value?: T) => options.find(option => option.value === value)?.label;
 const FIT_TEXT = { high: 'התאמה גבוהה', good: 'התאמה טובה', partial: 'התאמה חלקית' } as const;
 
@@ -72,11 +70,11 @@ export function toPreferences(answers: Answers): MatchPreferences {
   if (answers.family) value.family = answers.family;
   if (answers.travelers) value.travelers = answers.travelers;
   if (answers.seats) value.seats = answers.seats;
+  if (answers.seats && answers.seats !== 'any' && answers.seatsStrength) value.seatsStrength = answers.seatsStrength;
   if (answers.priorities.length) value.priorities = answers.priorities;
   if (answers.driving) value.driving = answers.driving;
   if (answers.distance) value.distance = answers.distance;
-  if (answers.charging) value.charging = answers.charging;
-  if (answers.needs.length) { value.needs = answers.needs; value.needsStrength = answers.needsStrength; }
+  if (answers.charging.length) value.charging = answers.charging;
   if (answers.finance) value.finance = answers.finance;
   return value;
 }
@@ -98,7 +96,7 @@ function FocusHeading({ id, children }: { id: string; children: ReactNode }) {
   return <h2 id={id} ref={heading} tabIndex={-1}>{children}</h2>;
 }
 
-function Choice({ label, hint, icon, selected, onSelect, multi = false, disabled = false }: {
+export function Choice({ label, hint, icon, selected, onSelect, multi = false, disabled = false }: {
   label: string; hint?: string; icon?: ChatIconName; selected: boolean; onSelect: () => void; multi?: boolean; disabled?: boolean;
 }) {
   return <button type="button" role={multi ? 'checkbox' : 'radio'} aria-checked={selected} disabled={disabled}
@@ -116,7 +114,7 @@ function Group({ label, children, multi = false, compact = false }: { label: str
   </div>;
 }
 
-function StepFrame({ index, title, subtitle, children, onBack, onNext, nextLabel = 'המשך', onSkip }: {
+export function StepFrame({ index, title, subtitle, children, onBack, onNext, nextLabel = 'המשך', onSkip }: {
   index: number; title: string; subtitle?: string; children: ReactNode; onBack: () => void; onNext: () => void; nextLabel?: string; onSkip?: () => void;
 }) {
   return <section className="cw-match-question cw-match-enter" aria-labelledby="cw-match-step-title">
@@ -245,15 +243,14 @@ function Comparison({ items }: { items: MatchRecommendation[] }) {
   </section>;
 }
 
-function summaryRows(answers: Answers, powertrains: MatchPowertrain[]): Array<{ step: StepId; label: string; value: string; empty: boolean }> {
+export function summaryRows(answers: Answers, powertrains: MatchPowertrain[]): Array<{ step: StepId; label: string; value: string; empty: boolean }> {
   const row = (step: StepId, label: string, value: string | undefined, fallback = 'דילגת') => ({ step, label, value: value || fallback, empty: !value });
   return [
-    row('travelers', 'מי נוסע', [labelOf(TRAVELER_OPTIONS, answers.travelers), answers.seats && answers.seats !== 'any' ? `${labelOf(SEAT_OPTIONS, answers.seats)} מקומות` : ''].filter(Boolean).join(' · ')),
+    row('travelers', 'מי נוסע', [labelOf(TRAVELER_OPTIONS, answers.travelers), answers.seats && answers.seats !== 'any' ? `${labelOf(SEAT_OPTIONS, answers.seats)} מקומות (${answers.seatsStrength === 'hard' ? 'חובה' : 'העדפה'})` : ''].filter(Boolean).join(' · ')),
     row('priorities', 'מה חשוב', answers.priorities.map(value => labelOf(PRIORITY_OPTIONS, value)).join(' · ')),
     row('driving', 'נסיעות', [labelOf(DRIVING_OPTIONS, answers.driving), labelOf(DISTANCE_OPTIONS, answers.distance)].filter(Boolean).join(' · ')),
     row('powertrain', 'סוג רכב', [answers.powertrain === 'any' ? 'פתוח לכל סוג' : `${powertrainLabel(answers.powertrain)} (${answers.strength === 'hard' ? 'חובה' : 'העדפה'})`,
-      powertrains.some(value => value === 'חשמלי' || value === 'פלאג-אין') ? labelOf(CHARGING_OPTIONS, answers.charging) : ''].filter(Boolean).join(' · ')),
-    row('needs', 'דרישות', answers.needs.length ? `${answers.needs.map(need => NEED_LABEL[need]).join(' · ')} (${answers.needsStrength === 'hard' ? 'חובה' : 'העדפה'})` : undefined, 'אין דרישה מיוחדת'),
+      powertrains.some(value => value === 'חשמלי' || value === 'פלאג-אין') ? answers.charging.map(value => labelOf(CHARGING_OPTIONS, value)).join(' · ') : ''].filter(Boolean).join(' · ')),
     row('finance', 'כלכלה', labelOf(FINANCE_OPTIONS, answers.finance))
   ];
 }
@@ -372,7 +369,7 @@ export function MatchApp({ userId, account }: { userId: string; account?: Employ
     <FocusHeading id="cw-match-hero-title">בואו נמצא את הרכב שמתאים בדיוק לך</FocusHeading>
     <p className="cw-match-hero-lead">עונים על כמה שאלות קצרות, ו־CarWise בודק אילו מהרכבים שכלולים בזכאות שלך הכי מתאימים לאורח החיים ולהעדפות שלך.</p>
     <ol className="cw-match-hero-steps">
-      <li><ChatIcon name="clock" /><span><strong>6 שאלות קצרות</strong>כ־2 דקות, ואפשר לדלג</span></li>
+      <li><ChatIcon name="clock" /><span><strong>{STEPS.length} שאלות קצרות</strong>כ־2 דקות, ואפשר לדלג</span></li>
       <li><ChatIcon name="shield" /><span><strong>רק רכבים שכלולים בזכאות</strong>{data.basis.occupation} · {groupLabel(data.basis.group)}</span></li>
       <li><ChatIcon name="calculator" /><span><strong>עד 3 המלצות עם הסבר</strong>ואומדן נטו ממחשבון החברה</span></li>
     </ol>
@@ -381,11 +378,15 @@ export function MatchApp({ userId, account }: { userId: string; account?: Employ
   else if (view.kind === 'step') {
     const index = order.indexOf(view.step);
     const common = { index, onBack: () => back(view.step), onNext: () => next(view.step) };
-    if (view.step === 'travelers') content = <StepFrame {...common} title="מי בדרך כלל נוסע איתך?" onSkip={() => { update({ travelers: undefined, seats: undefined }); next('travelers'); }}>
+    if (view.step === 'travelers') content = <StepFrame {...common} title="מי בדרך כלל נוסע איתך?" onSkip={() => { update({ travelers: undefined, seats: undefined, seatsStrength: undefined }); next('travelers'); }}>
       <Group label="נוסעים">{TRAVELER_OPTIONS.map(option => <Choice key={option.value} label={option.label} icon={option.icon}
         selected={answers.travelers === option.value} onSelect={() => update({ travelers: answers.travelers === option.value ? undefined : option.value })} />)}</Group>
       <Group label="כמה מקומות ישיבה צריכים להיות ברכב? (לא חובה)" compact>{SEAT_OPTIONS.map(option => <Choice key={option.value} label={option.label}
-        selected={answers.seats === option.value} onSelect={() => update({ seats: answers.seats === option.value ? undefined : option.value })} />)}</Group>
+        selected={answers.seats === option.value} onSelect={() => update({ seats: answers.seats === option.value ? undefined : option.value, seatsStrength: undefined })} />)}</Group>
+      {answers.seats && answers.seats !== 'any' && <Group label="מספר המקומות הוא…" compact>
+        <Choice label="דרישת חובה" selected={answers.seatsStrength === 'hard'} onSelect={() => update({ seatsStrength: 'hard' })} />
+        <Choice label="העדפה" selected={answers.seatsStrength !== 'hard'} onSelect={() => update({ seatsStrength: 'soft' })} />
+      </Group>}
     </StepFrame>;
     else if (view.step === 'priorities') content = <StepFrame {...common} title="מה הכי חשוב לך ברכב?" subtitle={`אפשר לבחור עד 3 · נבחרו ${answers.priorities.length} מתוך 3`}
       onSkip={() => { update({ priorities: [] }); next('priorities'); }}>
@@ -399,13 +400,13 @@ export function MatchApp({ userId, account }: { userId: string; account?: Employ
     else if (view.step === 'driving') content = <StepFrame {...common} title="איך נראות הנסיעות שלך?" onSkip={() => { update({ driving: undefined, distance: undefined }); next('driving'); }}>
       <Group label="דפוס הנסיעה העיקרי">{DRIVING_OPTIONS.map(option => <Choice key={option.value} label={option.label} icon={option.icon}
         selected={answers.driving === option.value} onSelect={() => update({ driving: answers.driving === option.value ? undefined : option.value })} />)}</Group>
-      <Group label="מרחק חודשי משוער" compact>{DISTANCE_OPTIONS.map(option => <Choice key={option.value} label={option.label}
+      <Group label="כמה ק״מ את/ה נוסע/ת בחודש?" compact>{DISTANCE_OPTIONS.map(option => <Choice key={option.value} label={option.label}
         selected={answers.distance === option.value} onSelect={() => update({ distance: answers.distance === option.value ? undefined : option.value })} />)}</Group>
     </StepFrame>;
     else if (view.step === 'powertrain') content = <StepFrame {...common} title="איזה סוג רכב מתאים לך?"
       subtitle={charges ? 'מוצגים רק סוגי הנעה שקיימים ברכבים שכלולים בזכאות שלך.' : 'אין ברכבים שבזכאות שלך רכב נטען, ולכן לא נשאל על טעינה.'}>
-      {charges && <Group label="אפשרויות טעינה">{CHARGING_OPTIONS.map(option => <Choice key={option.value} label={option.label} icon={option.icon}
-        selected={answers.charging === option.value} onSelect={() => update({ charging: answers.charging === option.value ? undefined : option.value })} />)}</Group>}
+      {charges && <Group label="אפשרויות טעינה · אפשר לבחור כמה" multi>{CHARGING_OPTIONS.map(option => <Choice key={option.value} multi label={option.label} icon={option.icon}
+        selected={answers.charging.includes(option.value)} onSelect={() => setAnswers(current => ({ ...current, charging: toggleCharging(current.charging, option.value) }))} />)}</Group>}
       <Group label="הנעה מועדפת">
         <Choice label="פתוח לכל סוג" icon="spark" selected={answers.powertrain === 'any'} onSelect={() => update({ powertrain: 'any' })} />
         {powertrains.map(value => <Choice key={value} label={propulsion(value).tile} icon={propulsion(value).icon}
@@ -415,20 +416,6 @@ export function MatchApp({ userId, account }: { userId: string; account?: Employ
       {answers.powertrain !== 'any' && <Group label="עד כמה זה חשוב?" compact>
         <Choice label="חובה מבחינתי" selected={answers.strength === 'hard'} onSelect={() => update({ strength: 'hard' })} />
         <Choice label="רק העדפה" selected={answers.strength === 'soft'} onSelect={() => update({ strength: 'soft' })} />
-      </Group>}
-    </StepFrame>;
-    else if (view.step === 'needs') content = <StepFrame {...common} title="יש משהו שחייב להיות ברכב?"
-      subtitle="הנתונים על מושבים, תא מטען וגודל הם מידע כללי על הדגם. דרישת חובה שאין עליה נתון תסומן לבדיקה ולא תוצג כמאומתת.">
-      <Group label="דרישות" multi>
-        {NEED_OPTIONS.map(option => { const selected = answers.needs.includes(option.value);
-          return <Choice key={option.value} multi label={NEED_LABEL[option.value]} icon={option.icon} selected={selected}
-            onSelect={() => update({ needs: selected ? answers.needs.filter(value => value !== option.value)
-              : [...answers.needs.filter(value => !(option.value === 'seats7' && value === 'seats5') && !(option.value === 'seats5' && value === 'seats7')), option.value] })} />; })}
-        <Choice multi label="אין דרישה מיוחדת" icon="check" selected={!answers.needs.length} onSelect={() => update({ needs: [] })} />
-      </Group>
-      {answers.needs.length > 0 && <Group label="האם אלה דרישות חובה?" compact>
-        <Choice label="חובה" hint="רכב שסותר אותן לא יוצג" selected={answers.needsStrength === 'hard'} onSelect={() => update({ needsStrength: 'hard' })} />
-        <Choice label="העדפה" hint="ישפיעו על הדירוג בלבד" selected={answers.needsStrength === 'soft'} onSelect={() => update({ needsStrength: 'soft' })} />
       </Group>}
     </StepFrame>;
     else content = <StepFrame {...common} title="כמה חשוב לך ההיבט הכלכלי?" subtitle="האומדן מחושב במחשבון החברה הקיים בלבד." nextLabel="לסיכום"

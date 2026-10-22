@@ -4,6 +4,7 @@ import { firstIssue, registrationSchema } from '../../../../lib/identity/employe
 import { createIdentityForNewUser, deleteNewAuthUser, nationalIdInUse } from '../../../../lib/identity/identity-repository';
 import { getHebrewAuthError } from '../../../../lib/auth-errors';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
+import { authOrigin } from '../../../../lib/auth-origin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -31,6 +32,9 @@ export async function POST(request: Request) {
   const origin = request.headers.get('origin');
   const self = new URL(request.url).origin;
   if (origin && origin !== self) return json({ error: 'אין הרשאה לפעולה הזו.' }, 403);
+  let callbackOrigin: string;
+  try { callbackOrigin = authOrigin(request.url); }
+  catch { return json({ error: 'ההרשמה אינה זמינה כרגע. יש לבדוק את הגדרת כתובת האתר.' }, 503); }
   if (!allow(request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'local')) {
     return json({ error: 'בוצעו יותר מדי ניסיונות. אפשר לנסות שוב בעוד כמה דקות.' }, 429);
   }
@@ -55,7 +59,7 @@ export async function POST(request: Request) {
   }
 
   const supabase = await createSupabaseServerClient();
-  const { data, error } = await supabase.auth.signUp({ email, password, options: { emailRedirectTo: `${self}/auth/callback` } });
+  const { data, error } = await supabase.auth.signUp({ email, password, options: { emailRedirectTo: `${callbackOrigin}/auth/callback` } });
   if (error) {
     const message = getHebrewAuthError(error.message);
     console.info('[carwise.register]', { outcome: 'auth_rejected' });

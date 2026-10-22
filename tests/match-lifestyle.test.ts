@@ -72,11 +72,11 @@ describe('CarWise Match 2.0: supplemental vehicle dataset', () => {
 describe('CarWise Match 2.0: lifestyle matching', () => {
   it('a mandatory 7-seat requirement excludes vehicles the data contradicts and never claims it is satisfied', async () => {
     const regular = await ready('E-001');
-    const none = rankVehicles(regular.candidates, prefs({ powertrain: 'any', needs: ['seats7'], needsStrength: 'hard' }));
+    const none = rankVehicles(regular.candidates, prefs({ powertrain: 'any', seats: '7', seatsStrength: 'hard' }));
     expect(none.recommendations).toEqual([]);
     expect(none.empty).toMatch(/דרישות החובה \(7 מקומות ומעלה\)/);
     const family = await ready('E-002');
-    const seven = rankVehicles(family.candidates, prefs({ powertrain: 'any', needs: ['seats7'], needsStrength: 'hard' }));
+    const seven = rankVehicles(family.candidates, prefs({ powertrain: 'any', seats: '7', seatsStrength: 'hard' }));
     expect(seven.recommendations.map(item => item.vehicle.id).sort()).toEqual([idOf('CARNIVAL'), idOf('SANTA FE')].sort());
     for (const item of seven.recommendations) {
       expect(item.missing.join(' ')).toMatch(/לא ידוע אם הרכב עומד בדרישת החובה "7 מקומות ומעלה"/);
@@ -92,28 +92,22 @@ describe('CarWise Match 2.0: lifestyle matching', () => {
     for (const item of outcome.recommendations) expect(item.tradeoffs.join(' ')).toMatch(/פחות מ־7 שציינת/);
   });
 
-  it('a mandatory large trunk keeps only data-consistent vehicles first, then vehicles without data, flagged', async () => {
+  it('large trunk remains a priority without a duplicate hard requirement', async () => {
     const context = await ready('E-006');
-    const outcome = rankVehicles(context.candidates, prefs({ powertrain: 'any', needs: ['large_trunk'], needsStrength: 'hard' }));
-    expect(outcome.excluded.requirement).toBeGreaterThan(0);
-    for (const item of outcome.recommendations) {
-      const trunk = item.profile.trunkLiters;
-      expect(trunk === undefined || trunk >= 450).toBe(true);
-      expect(item.missing.join(' ')).toMatch(trunk === undefined ? /לא ידוע אם הרכב עומד/ : /לא אומתה לגרסה המדויקת/);
-    }
-    const known = outcome.recommendations.map(item => item.profile.trunkLiters !== undefined);
-    expect(known).toEqual([...known].sort((a, b) => Number(b) - Number(a)));
+    const outcome = rankVehicles(context.candidates, prefs({ powertrain: 'any', priorities: ['large_trunk'] }));
+    expect(outcome.excluded.requirement).toBe(0);
+    expect(outcome.recommendations).toHaveLength(3);
   });
 
   it('charging access shapes electric suitability and explains the tradeoff instead of silently excluding EVs', async () => {
     const context = await ready('E-001');
-    const noCharging = rankVehicles(context.candidates, prefs({ powertrain: 'any', charging: 'none', finance: 'fit_first' }));
+    const noCharging = rankVehicles(context.candidates, prefs({ powertrain: 'any', charging: ['none'], finance: 'fit_first' }));
     expect(noCharging.recommendations.every(item => item.vehicle.drive_type !== 'חשמלי')).toBe(true);
     expect(noCharging.recommendations.some(item => item.reasons.join(' ').includes('לא נדרשת טעינה'))).toBe(true);
-    const ev = rankVehicles(context.candidates.filter(candidate => candidate.drive_type === 'חשמלי'), prefs({ powertrain: 'any', charging: 'none' }));
+    const ev = rankVehicles(context.candidates.filter(candidate => candidate.drive_type === 'חשמלי'), prefs({ powertrain: 'any', charging: ['none'] }));
     expect(ev.recommendations.length).toBeGreaterThan(0);
     for (const item of ev.recommendations) expect(item.tradeoffs.join(' ')).toMatch(/אין לך אפשרות טעינה קבועה/);
-    const home = rankVehicles(context.candidates, prefs({ powertrain: 'חשמלי', strength: 'soft', charging: 'home' }));
+    const home = rankVehicles(context.candidates, prefs({ powertrain: 'חשמלי', strength: 'soft', charging: ['home'] }));
     expect(home.recommendations[0].vehicle.drive_type).toBe('חשמלי');
     expect(home.recommendations[0].reasons.join(' ')).toMatch(/טעינה בבית/);
   });
@@ -185,7 +179,7 @@ describe('CarWise Match 2.0: lifestyle matching', () => {
   it('is deterministic: the same answers give the same report, whatever the input order', async () => {
     const context = await ready('E-006');
     const preferences = prefs({ powertrain: 'חשמלי', strength: 'soft', travelers: 'small_family', priorities: ['cost', 'family_space', 'large_trunk'],
-      driving: 'mixed', distance: 'high', charging: 'work', needs: ['high_body'], needsStrength: 'soft', finance: 'balanced' });
+      driving: 'mixed', distance: 'high', charging: ['work'], finance: 'balanced' });
     const first = rankVehicles(context.candidates, preferences);
     expect(rankVehicles([...context.candidates].reverse(), preferences)).toEqual(first);
     expect(rankVehicles(context.candidates, preferences)).toEqual(first);
@@ -194,7 +188,7 @@ describe('CarWise Match 2.0: lifestyle matching', () => {
   it('keeps CAR-16 conservative in lifestyle matching: never a powertrain match, charging suitability unknown', async () => {
     const context = await ready('E-006');
     const only = context.candidates.filter(candidate => candidate.id === 'CAR-16');
-    const item = rankVehicles(only, prefs({ powertrain: 'פלאג-אין', strength: 'soft', charging: 'home' })).recommendations[0];
+    const item = rankVehicles(only, prefs({ powertrain: 'פלאג-אין', strength: 'soft', charging: ['home'] })).recommendations[0];
     expect(item.fit).toBe('unverified');
     expect(item.reasons.join(' ')).not.toMatch(/תואם להעדפה|טעינה בבית/);
     expect(item.missing.join(' ')).toMatch(/סיווג ההנעה בבדיקה/);

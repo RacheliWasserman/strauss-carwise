@@ -166,7 +166,8 @@ describe('gender-neutral Hebrew in user-facing text and prompts', () => {
         const code = line.trim();
         if (!/[֐-׿]/u.test(code) || /^(?:\/\/|\*|\/\*)/.test(code) || understandsInput.test(code)) return;
         // Exact product copy explicitly requested for the unspecified hypothetical-simulation prompt.
-        const text = code.replace(/מפתח\/ת/g, '').replace('בשמחה! מה תרצי לשנות לצורך הסימולציה — שכר, רכב או משהו אחר?', '');
+        const text = code.replace(/מפתח\/ת/g, '').replace('בשמחה! מה תרצי לשנות לצורך הסימולציה — שכר, רכב או משהו אחר?', '')
+          .replace('כמה ק״מ את/ה נוסע/ת בחודש?', ''); // Exact Match mileage copy requested by the owner.
         if (FEMININE.test(text) || SLASH.test(text)) findings.push(`${file}:${index + 1}: ${code.slice(0, 120)}`);
       });
     }

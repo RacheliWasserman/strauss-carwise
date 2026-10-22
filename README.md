@@ -42,7 +42,7 @@ npm run dev
 
 1. העתיקו את `.env.example` ל־`.env.local` והגדירו `NEXT_PUBLIC_SUPABASE_URL` ו־`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` מתוך Supabase Project Settings → API. `SUPABASE_SECRET_KEY` נדרש רק עבור פעולות שרת קיימות; לעולם אין לחשוף אותו בדפדפן.
 2. בדקו את `supabase/migrations/202610180001_auth_profiles.sql` מול הסכמה הקיימת והריצו אותו ידנית ב־Supabase SQL Editor או דרך תהליך migrations מאושר. הוא יוצר `user_profiles`, RLS, פרופיל employee אוטומטי ופעולת role ייעודית ל־`service_role`; הוא אינו משנה טבלאות עסקיות. אין להריץ את קובץ ה־SQL אוטומטית מהאפליקציה.
-3. ב־Supabase Authentication → URL Configuration הגדירו את כתובת האתר והוסיפו Redirect URLs עבור `http://localhost:3000/auth/callback` וגם `http://localhost:3000/**` (ובהמשך את כתובות הפרודקשן המתאימות).
+3. בפרודקשן הגדירו Site URL כ־`https://strauss-carwise.vercel.app`, והוסיפו Redirect URL מדויק `https://strauss-carwise.vercel.app/auth/callback`. הגדירו ב־Vercel Production גם `APP_SITE_URL=https://strauss-carwise.vercel.app`. לפיתוח מקומי אפשר להוסיף בנפרד `http://localhost:3000/auth/callback`. ראו [הגדרות אימות אימייל בפרודקשן](docs/auth-production-redirects.md), כולל תבנית האימייל ובדיקת הפרויקט הנכון.
 4. הפעילו אימות אימייל או בחרו במדיניות הארגונית הרצויה. מסך ההרשמה שולח redirect ל־callback; לאחר אישור נוצרת session ונקרא role מטבלת `user_profiles`.
 5. משתמשים חדשים מקבלים `employee` דרך trigger ולא דרך metadata. לקביעת נציג, מנהל מורשה יכול להריץ פעולה מאומתת דרך `public.set_user_profile_role(user_uuid, 'representative')` באמצעות `service_role` בלבד. אין endpoint ציבורי לשינוי role.
 
