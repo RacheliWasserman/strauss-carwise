@@ -52,6 +52,26 @@ export async function createConversationWithFirstMessage(
   return data;
 }
 
+/**
+ * The message of a conversation that holds exactly one message (a conversation just created), read through the
+ * caller's own RLS session. Null otherwise (e.g. a retried creation of a conversation that has since continued) or
+ * when it cannot be read; the caller then simply loads the thread as usual.
+ */
+export async function getSoleConversationMessage(
+  conversationId: string
+): Promise<ConversationMessageRow | null> {
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase
+    .from('advisor_conversation_messages')
+    .select('id, conversation_id, sender_type, sender_user_id, body, client_message_id, created_at')
+    .eq('conversation_id', conversationId)
+    .order('created_at', { ascending: true })
+    .order('id', { ascending: true })
+    .limit(2);
+  if (error || !Array.isArray(data) || data.length !== 1) return null;
+  return data[0] as ConversationMessageRow;
+}
+
 export async function listConversations(
   ownerUserId: string,
   before: MessageCursor | null = null,
@@ -213,6 +233,14 @@ export async function appendAssistantMessage(
   ownerUserId: string,
   body: string
 ): Promise<string> {
+  // Both checks are read concurrently (the conversation read uses the caller's own RLS session) and still
+  // enforced in order before the privileged append.
+  const conversationRead = getConversation(
+    conversationId,
+    ownerUserId,
+    'employee'
+  );
+  conversationRead.catch(() => {});
   const profile = await getAuthenticatedProfile();
   if (
     !profile ||
@@ -222,11 +250,7 @@ export async function appendAssistantMessage(
     throw new Error('Employee authentication required');
   }
 
-  const conversation = await getConversation(
-    conversationId,
-    ownerUserId,
-    'employee'
-  );
+  const conversation = await conversationRead;
   if (!conversation) throw new Error('Conversation not found');
 
   const { data, error } = await supabaseAdmin.rpc(

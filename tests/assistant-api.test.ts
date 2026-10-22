@@ -33,8 +33,21 @@ it('uses only authenticated identity and a saved message reference', async () =>
   mocks.run.mockResolvedValue({ status: 'complete', message: { id: 'saved-reply' } });
   const response = await POST(request({ messageId }), params);
   expect(response.status).toBe(200);
-  expect(mocks.run).toHaveBeenCalledWith({ userId: 'server-user', role: 'employee' }, conversationId, messageId, { statusOnly: undefined });
+  expect(mocks.run).toHaveBeenCalledWith({ userId: 'server-user', role: 'employee' }, conversationId, messageId, { statusOnly: undefined, timing: {} });
   expect(response.headers.get('cache-control')).toBe('no-store');
+  // Phase durations only, never content.
+  expect(response.headers.get('server-timing')).toMatch(/^auth;desc="Authentication";dur=\d+, total;desc="Server total";dur=\d+$/);
+});
+it('reports model, database and save phases separately in Server-Timing, durations only', async () => {
+  mocks.run.mockImplementation(async (_profile, _conversation, _message, options: { timing: Record<string, number> }) => {
+    Object.assign(options.timing, { save: 40, model: 1200, prepare: 90, advisor: 130 });
+    return { status: 'complete', message: { id: 'saved-reply', body: 'נטו 1,234 ₪' } };
+  });
+  const header = (await POST(request({ messageId }), params)).headers.get('server-timing')!;
+  expect(header.split(', ').map(entry => entry.split(';')[0])).toEqual(['auth', 'prepare', 'model', 'advisor', 'save', 'total']);
+  expect(header).toContain('model;desc="Model plan request incl. fallback";dur=1200');
+  expect(header).toContain('advisor;desc="Database reads plus eligibility and calculator";dur=130');
+  expect(header).not.toMatch(/1,234|saved-reply|server-user/);
 });
 it('returns pending without pretending a reply was saved', async () => {
   mocks.run.mockResolvedValue({ status: 'pending' });

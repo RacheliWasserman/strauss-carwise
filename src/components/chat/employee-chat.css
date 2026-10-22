@@ -50,6 +50,14 @@
 .cw-catalog-nav-arrow { color: #a6e6d4; display: grid; transition: transform .2s; }
 .cw-catalog-nav-arrow svg { width: 18px; height: 18px; }
 .cw-catalog-nav:hover .cw-catalog-nav-arrow { transform: translateX(-3px); }
+.cw-match-nav { display: flex; align-items: center; gap: 9px; margin: -8px 2px 14px; padding: 10px 13px; border-radius: 12px; text-decoration: none;
+  color: #cfeae3; font-size: 12.5px; border: 1px solid #8bd6c42e; background: #ffffff08; transition: background .2s, border-color .2s; }
+.cw-match-nav svg { width: 17px; height: 17px; color: #a6e6d4; flex-shrink: 0; }
+.cw-match-nav strong { color: #f2fbf8; font-weight: 700; }
+.cw-match-nav:hover { background: #ffffff12; border-color: #8bd6c455; }
+.cw-match-nav:focus-visible { outline: 2px solid #a6e6d4; outline-offset: 2px; }
+.cw-match-nav-active { background: #e1f4e9; color: #12423f; border-color: #c9eddf; }
+.cw-match-nav-active strong, .cw-match-nav-active svg { color: #137c77; }
 .cw-catalog-nav-active { background: linear-gradient(135deg, #e1f4e9, #c9eddf); color: #12423f; border-color: #c9eddf; }
 .cw-catalog-nav-active .cw-catalog-nav-icon { background: #137c77; color: #fff; }
 .cw-catalog-nav-active .cw-catalog-nav-text span { color: #2f6b63; }
@@ -212,14 +220,10 @@
 .cw-catalog-caption { font-size: 12px; line-height: 1.7; color: #496471; }
 /* Approval summary, calculation results and quick replies reuse the catalog card language. */
 .cw-message-bubble { white-space: pre-line; }
-.cw-reveal { display: block; position: relative; padding-bottom: 26px; }
+/* The full text reserves the final layout, so the short reveal never shifts the thread. */
+.cw-reveal { display: block; position: relative; }
 .cw-reveal-reserve { visibility: hidden; }
 .cw-reveal-visible { position: absolute; inset: 0 0 auto; pointer-events: none; }
-.cw-reveal-cursor { display: inline-block; width: 2px; height: 1em; margin-inline-start: 3px; background: #18847d; vertical-align: -.12em; animation: cw-cursor-blink .8s ease-in-out infinite; }
-.cw-reveal-all { position: absolute; inset-inline-end: 0; bottom: 0; border: 0; border-radius: 6px; background: #edf5f1; color: #185b57; padding: 2px 8px; font: inherit; font-size: 11px; cursor: pointer; }
-.cw-reveal-all:focus-visible { outline: 2px solid #18847d; outline-offset: 3px; }
-@keyframes cw-cursor-blink { 50% { opacity: .15; } }
-@media (prefers-reduced-motion: reduce) { .cw-reveal-cursor { animation: none; } }
 .cw-approval, .cw-calc { margin-top: 12px; max-width: 680px; background: #fff; border: 1px solid #c8e6e5; border-radius: 18px; padding: 16px; box-shadow: 0 5px 18px #12384b08; overflow-wrap: anywhere; }
 .cw-block-title { display: flex; align-items: center; gap: 8px; color: #176766; font-size: 13px; font-weight: 600; margin-bottom: 10px; }
 .cw-block-title svg { width: 22px; height: 22px; flex-shrink: 0; }

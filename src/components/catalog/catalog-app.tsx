@@ -14,7 +14,7 @@ import '../chat/employee-chat.css';
 import './catalog.css';
 
 /** The employee's conversation list for the sidebar (read only here; choosing one opens it in the chat). */
-function useConversationList() {
+export function useConversationList() {
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
   const [cursor, setCursor] = useState<ChatCursor | null>(null);
   const [loading, setLoading] = useState(true);

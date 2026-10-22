@@ -3,6 +3,7 @@ import { ZodError } from 'zod';
 import { requireApiRole } from '@/lib/persistence-api-auth';
 import {
   createConversationWithFirstMessage,
+  getSoleConversationMessage,
   listConversations
 } from '@/lib/conversation-repository';
 import { firstMessageSchema, messagePageQuerySchema } from '@/lib/persistence-validation';
@@ -55,7 +56,16 @@ export async function POST(request: Request) {
       input.body,
       input.clientRequestId
     );
-    return NextResponse.json({ conversationId }, { status: 201 });
+    // Returning the saved first message saves the client a full thread reload before the reply can start.
+    // Best effort: only a just-created conversation's sole message, sent by the caller as an employee; otherwise the
+    // client loads the thread as before.
+    let message;
+    try {
+      const first = await getSoleConversationMessage(conversationId);
+      if (first && first.conversation_id === conversationId && first.sender_type === 'employee' &&
+        first.sender_user_id === access.profile.userId) message = first;
+    } catch { /* The conversation exists; the client reloads it. */ }
+    return NextResponse.json(message ? { conversationId, message } : { conversationId }, { status: 201 });
   } catch (error) {
     if (error instanceof Error && error.message.includes('Idempotency key reused')) {
       return NextResponse.json(

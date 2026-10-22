@@ -58,6 +58,11 @@ async function gemini(key: string, model: string, context: AiContext, signal: Ab
       config: { systemInstruction, maxOutputTokens: AI_LIMITS.maxOutputTokens, abortSignal: signal }
     });
     const reason = result.candidates?.[0]?.finishReason;
+    // Token counts only (never text): shows whether prompt size or hidden reasoning dominates a slow reply.
+    const tokens = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? value : null;
+    console.info('[carwise.ai.gemini.usage]', { promptTokens: tokens(result.usageMetadata?.promptTokenCount),
+      thoughtsTokens: tokens(result.usageMetadata?.thoughtsTokenCount), outputTokens: tokens(result.usageMetadata?.candidatesTokenCount),
+      finishReason: typeof reason === 'string' && /^[A-Z_]{1,40}$/.test(reason) ? reason : null });
     if (result.promptFeedback?.blockReason) throw new ProviderFailure(false,'safety_or_unsupported_output');
     if (reason === 'MAX_TOKENS') throw new ProviderFailure(true,'truncated_output',200);
     if (reason && reason !== 'STOP') throw new ProviderFailure(false, 'safety_or_unsupported_output');

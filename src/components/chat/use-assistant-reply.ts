@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { chatApi, ChatApiError, type ChatMessage } from '@/lib/chat-client';
+import { chatTiming } from '@/lib/chat-timing';
 
 type Options = { conversationId: string | null; messages: ChatMessage[]; paused: boolean; onMessage: (message: ChatMessage) => void };
 function wait(signal: AbortSignal) {
@@ -43,6 +44,7 @@ export function useAssistantReply({ conversationId, messages, paused, onMessage 
     busy.current = true; attempted.current.add(key);
     const current = new AbortController(); controller.current = current;
     setThinking(true); setError(null); setRetryId(messageId);
+    chatTiming.start('assistant_request');
     try {
       let result = await chatApi.assistant(conversationId, messageId, false, current.signal);
       for (let poll = 0; result.status === 'pending' && poll < 15; poll++) {
@@ -50,8 +52,12 @@ export function useAssistantReply({ conversationId, messages, paused, onMessage 
         result = await chatApi.assistant(conversationId, messageId, true, current.signal);
       }
       if (result.status !== 'complete' || result.message.sender_type !== 'assistant' || result.message.conversation_id !== conversationId) throw new ChatApiError(503);
-      if (!current.signal.aborted) { onMessage(result.message); failures.current.delete(key); setRetryId(null); setNeedsLogin(false); }
+      if (!current.signal.aborted) {
+        chatTiming.end('assistant_request');
+        onMessage(result.message); failures.current.delete(key); setRetryId(null); setNeedsLogin(false);
+      }
     } catch (failure) {
+      chatTiming.cancel('assistant_request', 'reply_on_screen');
       if (!current.signal.aborted) {
         const text = friendly(failure); failures.current.set(key, text); setError(text);
         setNeedsLogin(failure instanceof ChatApiError && failure.status === 401);

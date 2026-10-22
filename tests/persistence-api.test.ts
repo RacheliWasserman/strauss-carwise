@@ -2,13 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   profile: vi.fn(), role: vi.fn(), create: vi.fn(), list: vi.fn(),
-  conversation: vi.fn(), messages: vi.fn(), send: vi.fn(), request: vi.fn()
+  conversation: vi.fn(), messages: vi.fn(), send: vi.fn(), request: vi.fn(), first: vi.fn()
 }));
 vi.mock('../src/lib/representative-request-repository', () => ({ getRequestForRepresentative: mocks.request }));
 vi.mock('@/lib/require-authenticated-user', () => ({ getAuthenticatedProfile: mocks.profile }));
 vi.mock('@/lib/persistence-api-auth', () => ({ requireApiRole: mocks.role }));
 vi.mock('@/lib/conversation-repository', () => ({
   createConversationWithFirstMessage: mocks.create,
+  getSoleConversationMessage: mocks.first,
   listConversations: mocks.list,
   getConversation: mocks.conversation,
   listConversationMessages: mocks.messages,
@@ -103,6 +104,29 @@ it('creates a new conversation without changing the existing one', async () => {
   expect(response.status).toBe(201);
   expect(await response.json()).toEqual({ conversationId: id });
   expect(mocks.send).not.toHaveBeenCalled();
+});
+
+it('returns the employee\'s own saved first message with the new conversation, and nothing else', async () => {
+  const create = () => POST(new Request('http://localhost/api/conversations', {
+    method: 'POST', body: JSON.stringify({ body: 'new conversation' })
+  }));
+  const first = { id, conversation_id: id, sender_type: 'employee', sender_user_id: 'employee', body: 'new conversation',
+    client_message_id: null, created_at: timestamp };
+  mocks.create.mockResolvedValue(id);
+  mocks.first.mockResolvedValue(first);
+  expect(await (await create()).json()).toEqual({ conversationId: id, message: first });
+  expect(mocks.first).toHaveBeenCalledWith(id);
+  // Another sender, another conversation, or a failed read: the conversation id only (the client reloads the thread).
+  mocks.first.mockResolvedValue({ ...first, sender_user_id: 'someone-else' });
+  expect(await (await create()).json()).toEqual({ conversationId: id });
+  mocks.first.mockResolvedValue({ ...first, sender_type: 'assistant', sender_user_id: null });
+  expect(await (await create()).json()).toEqual({ conversationId: id });
+  mocks.first.mockResolvedValue({ ...first, conversation_id: 'other' });
+  expect(await (await create()).json()).toEqual({ conversationId: id });
+  mocks.first.mockRejectedValue(new Error('read failed'));
+  const response = await create();
+  expect(response.status).toBe(201);
+  expect(await response.json()).toEqual({ conversationId: id });
 });
 
 it('allows paging to older saved conversations beyond the first list page', async () => {

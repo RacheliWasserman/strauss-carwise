@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  chatApi, ChatDelivery, ChatApiError, confirmedOutgoing, conversationIdFrom,
+  chatApi, ChatDelivery, ChatApiError, confirmedOutgoing, conversationIdFrom, createdThreadSeed,
   mergeConversations, mergeMessages, parseOutgoing,
   type ChatConversation, type ChatMessage, type OutgoingMessage
 } from '../src/lib/chat-client';
@@ -58,6 +58,27 @@ describe('real Phase 2 HTTP contracts used by the employee chat', () => {
     expect(url).toBe('/api/conversations');
     expect(JSON.parse(init.body)).toEqual({ body: operation.body, clientRequestId: requestId });
     expect(init.credentials).toBe('same-origin');
+  });
+
+  it('opens a new thread with the saved first message only when it is exactly the employee\'s own message', async () => {
+    const first = { ...message, client_message_id: null };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ conversationId, message: first })));
+    const result = await new ChatDelivery().deliver(operation);
+    expect(result).toEqual({ conversationId, message: first });
+    expect(createdThreadSeed(operation, result, userId)).toEqual([first]);
+    // Anything unexpected reloads the thread instead of trusting the response.
+    expect(createdThreadSeed(operation, { conversationId }, userId)).toBeNull();
+    expect(createdThreadSeed(operation, result, '55555555-5555-4555-8555-555555555555')).toBeNull();
+    expect(createdThreadSeed(operation, { conversationId, message: { ...first, sender_type: 'assistant', sender_user_id: null } }, userId)).toBeNull();
+    expect(createdThreadSeed(operation, { conversationId, message: { ...first, conversation_id: messageId } }, userId)).toBeNull();
+    expect(createdThreadSeed(operation, { conversationId, message: { ...first, body: 'הודעה אחרת' } }, userId)).toBeNull();
+    // A message added to an existing conversation never replaces its loaded thread.
+    expect(createdThreadSeed({ ...operation, conversationId }, result, userId)).toBeNull();
+  });
+
+  it('rejects a malformed first message in the creation response instead of showing it', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ conversationId, message: { ...message, sender_type: 'admin' } })));
+    await expect(chatApi.create(operation)).rejects.toMatchObject({ status: 0 });
   });
 
   it('continues the same conversation and supplies no forged sender fields', async () => {

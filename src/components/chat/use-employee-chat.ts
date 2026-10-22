@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  chatApi, ChatApiError, ChatDelivery, confirmedOutgoing, conversationIdFrom, mergeConversations,
+  chatApi, ChatApiError, ChatDelivery, confirmedOutgoing, conversationIdFrom, createdThreadSeed, mergeConversations,
   mergeMessages, parseOutgoing, type ChatConversation, type ChatCursor,
   type ChatMessage, type OutgoingMessage
 } from '@/lib/chat-client';
+import { chatTiming } from '@/lib/chat-timing';
 import { useAssistantReply } from './use-assistant-reply';
 
 function errorMessage(error: unknown) {
@@ -50,12 +51,15 @@ export function useEmployeeChat(userId: string) {
   const pendingRef = useRef<OutgoingMessage | null>(null);
   const activeRef = useRef(activeId);
   const aiThinkingRef = useRef(false);
+  /** A conversation just created by this client, with its saved first message: shown without reloading the thread. */
+  const seededThread = useRef<{ id: string; messages: ChatMessage[] } | null>(null);
   activeRef.current = activeId;
 
   const receiveAssistant = useCallback((message: ChatMessage) => {
     if (activeRef.current !== message.conversation_id) return;
     if (!visibleMessages.current.some(item => item.id === message.id)) {
       setRevealIds(current => new Set(current).add(message.id));
+      chatTiming.start('reply_render');
     }
     setMessages(current => mergeMessages(current, [message]));
     setConversations(current => mergeConversations(current, current.filter(item => item.id === message.conversation_id)
@@ -135,7 +139,12 @@ export function useEmployeeChat(userId: string) {
   }, [reconcilePending]);
 
   useEffect(() => {
-    setMessages([]); setRevealIds(new Set()); setMessageCursor(null); setThreadError(null); setThreadLoading(Boolean(activeId));
+    const seed = seededThread.current?.id === activeId ? seededThread.current : null;
+    seededThread.current = null;
+    setMessages(seed?.messages ?? []); setRevealIds(new Set()); setMessageCursor(null); setThreadError(null);
+    // A conversation this client just created holds only the message it saved: the reply starts without a reload.
+    if (seed && ready) { setLoadedId(seed.id); setThreadLoading(false); return; }
+    setThreadLoading(Boolean(activeId));
     if (!ready || !activeId) return;
     const controller = new AbortController();
     void loadThread(activeId, controller.signal);
@@ -189,10 +198,14 @@ export function useEmployeeChat(userId: string) {
     setSending(true); setPending(operation); setSendError(null);
     // Temporary recovery only, scoped to this authenticated user. Removed on confirmation.
     try { sessionStorage.setItem(pendingKey, JSON.stringify(operation)); } catch { /* In-memory retry still works. */ }
+    chatTiming.start('message_saved', 'reply_on_screen');
     try {
       const result = await delivery.current.deliver(operation);
+      chatTiming.end('message_saved');
       remember(result.conversationId);
       setTitles(current => current[result.conversationId] ? current : { ...current, [result.conversationId]: operation.body.slice(0, 70) });
+      const seed = createdThreadSeed(operation, result, userId);
+      if (seed) seededThread.current = { id: result.conversationId, messages: seed };
       if (result.message) {
         const message = result.message;
         setMessages(current => mergeMessages(current, [message]));
@@ -204,6 +217,7 @@ export function useEmployeeChat(userId: string) {
       try { sessionStorage.removeItem(pendingKey); } catch { /* Saving to Supabase already succeeded. */ }
       void loadHistory();
     } catch (error) {
+      chatTiming.cancel('message_saved', 'reply_on_screen');
       setSendError(errorMessage(error)); setNeedsLogin(error instanceof ChatApiError && error.status === 401);
     } finally { sendLock.current = false; setSending(false); }
   };

@@ -16,7 +16,7 @@ type Props = {
   /** The signed-in account's stored name, when the identity record exists. */
   account?: { firstName: string; fullName: string };
   /** The page the sidebar is shown on; the catalog link is marked as the current page there. */
-  section?: 'chat' | 'catalog';
+  section?: 'chat' | 'catalog' | 'match';
 };
 /** Up to two initials from the stored name, for the account avatar. */
 export const initials = (fullName: string) => fullName.split(/[\s-]+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('');
@@ -84,6 +84,10 @@ export function ChatSidebar(props: Props) {
         <span className="cw-catalog-nav-icon" aria-hidden="true"><ChatIcon name="car" /></span>
         <span className="cw-catalog-nav-text"><strong>קטלוג רכבי החברה</strong><span>גלו את הרכב הבא שלכם</span></span>
         <span className="cw-catalog-nav-arrow" aria-hidden="true"><ChatIcon name="forward" /></span>
+      </Link>
+      <Link href="/match" className={`cw-match-nav ${props.section === 'match' ? 'cw-match-nav-active' : ''}`}
+        aria-current={props.section === 'match' ? 'page' : undefined} onClick={onClose}>
+        <ChatIcon name="spark" /><span><strong>CarWise Match</strong> · התאמה אישית של רכב</span>
       </Link>
       <div className="cw-account"><span className="cw-account-avatar" aria-hidden="true">{props.account ? initials(props.account.fullName) : <ChatIcon name="user" />}</span><div><strong>{props.account?.fullName ?? 'האזור האישי שלך'}</strong><span>{props.account ? 'האזור האישי · STRAUSS' : 'STRAUSS · EMPLOYEE'}</span></div><LogoutButton /></div>
     </aside>

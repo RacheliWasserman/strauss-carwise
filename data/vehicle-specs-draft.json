@@ -1,0 +1,1718 @@
+{
+  "schemaVersion": "1.0",
+  "datasetPurpose": "Research starter for CarWise Match; not production-verified vehicle facts",
+  "createdOn": "2026-10-22",
+  "importantWarnings": [
+    "All technical specifications below are general model-level knowledge, NOT verified against exact model codes, market trims, or official documents.",
+    "Some approximate values may be wrong or refer to a different version. Do not use unverified technical values for deterministic matching, claims, or financial decisions.",
+    "Range min/max are indicative across versions, not the exact car.",
+    "The user-provided catalog is the only source of powertrain labels; CAR-16 has an unresolved conflict.",
+    "No official sources were researched or verified in this file. Source URLs are intentionally empty.",
+    "Company costs and employee participation were not copied; these are dummy financial inputs in the existing app."
+  ],
+  "verificationStatus": "research_draft_unverified",
+  "vehicles": [
+    {
+      "vehicleId": "CAR-01",
+      "manufacturer": "Kia",
+      "model": "Picanto",
+      "registrationYear": 2025,
+      "catalogPowertrain": {
+        "value": "gasoline",
+        "status": "catalog_provided",
+        "note": "Powertrain from user-provided catalog (not independently verified)"
+      },
+      "specifications": {
+        "bodyType": {
+          "value": "hatchback",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "seats": {
+          "value": 5,
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "trunkLitersApprox": {
+          "value": 255,
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "wltpRangeKmByVariant": {
+          "min": null,
+          "max": null,
+          "status": "unknown",
+          "note": "Broad variant-level indicative figures; NOT a confirmed range for this catalog car. Do not use for ranking until verified."
+        },
+        "fuelConsumptionLPer100Km": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "batteryKWh": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "dcChargingKw": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "lengthMm": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "safetyRating": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        }
+      },
+      "qualitativeTags": {
+        "typicalUse": {
+          "value": "city",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "sizeClass": {
+          "value": "small",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        }
+      },
+      "exactTrimVerified": false,
+      "sourceUrls": [],
+      "approvedForAutomatedRanking": {
+        "powertrain": true,
+        "seats": false,
+        "trunk": false,
+        "range": false,
+        "qualitativeTags": false
+      },
+      "verificationNeeded": [
+        "Identify exact Israeli trim by model code",
+        "Find manufacturer/importer specifications for this trim",
+        "Confirm seating, luggage and range/consumption where relevant"
+      ]
+    },
+    {
+      "vehicleId": "CAR-02",
+      "manufacturer": "Toyota",
+      "model": "Yaris Cross HSD",
+      "registrationYear": 2025,
+      "catalogPowertrain": {
+        "value": "hybrid",
+        "status": "catalog_provided",
+        "note": "Powertrain from user-provided catalog (not independently verified)"
+      },
+      "specifications": {
+        "bodyType": {
+          "value": "small_suv",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "seats": {
+          "value": 5,
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "trunkLitersApprox": {
+          "value": 397,
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "wltpRangeKmByVariant": {
+          "min": null,
+          "max": null,
+          "status": "unknown",
+          "note": "Broad variant-level indicative figures; NOT a confirmed range for this catalog car. Do not use for ranking until verified."
+        },
+        "fuelConsumptionLPer100Km": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "batteryKWh": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "dcChargingKw": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "lengthMm": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "safetyRating": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        }
+      },
+      "qualitativeTags": {
+        "typicalUse": {
+          "value": "mixed",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "sizeClass": {
+          "value": "compact",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        }
+      },
+      "exactTrimVerified": false,
+      "sourceUrls": [],
+      "approvedForAutomatedRanking": {
+        "powertrain": true,
+        "seats": false,
+        "trunk": false,
+        "range": false,
+        "qualitativeTags": false
+      },
+      "verificationNeeded": [
+        "Identify exact Israeli trim by model code",
+        "Find manufacturer/importer specifications for this trim",
+        "Confirm seating, luggage and range/consumption where relevant"
+      ]
+    },
+    {
+      "vehicleId": "CAR-03",
+      "manufacturer": "BYD",
+      "model": "Dolphin",
+      "registrationYear": 2025,
+      "catalogPowertrain": {
+        "value": "electric",
+        "status": "catalog_provided",
+        "note": "Powertrain from user-provided catalog (not independently verified)"
+      },
+      "specifications": {
+        "bodyType": {
+          "value": "hatchback",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "seats": {
+          "value": 5,
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "trunkLitersApprox": {
+          "value": 345,
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "wltpRangeKmByVariant": {
+          "min": 340,
+          "max": 427,
+          "status": "unverified_model_level",
+          "note": "Broad variant-level indicative figures; NOT a confirmed range for this catalog car. Do not use for ranking until verified."
+        },
+        "fuelConsumptionLPer100Km": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "batteryKWh": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "dcChargingKw": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "lengthMm": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "safetyRating": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        }
+      },
+      "qualitativeTags": {
+        "typicalUse": {
+          "value": "mixed",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "sizeClass": {
+          "value": "compact",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        }
+      },
+      "exactTrimVerified": false,
+      "sourceUrls": [],
+      "approvedForAutomatedRanking": {
+        "powertrain": true,
+        "seats": false,
+        "trunk": false,
+        "range": false,
+        "qualitativeTags": false
+      },
+      "verificationNeeded": [
+        "Identify exact Israeli trim by model code",
+        "Find manufacturer/importer specifications for this trim",
+        "Confirm seating, luggage and range/consumption where relevant"
+      ]
+    },
+    {
+      "vehicleId": "CAR-04",
+      "manufacturer": "SEAT",
+      "model": "Leon",
+      "registrationYear": 2025,
+      "catalogPowertrain": {
+        "value": "gasoline",
+        "status": "catalog_provided",
+        "note": "Powertrain from user-provided catalog (not independently verified)"
+      },
+      "specifications": {
+        "bodyType": {
+          "value": "hatchback",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "seats": {
+          "value": 5,
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "trunkLitersApprox": {
+          "value": 380,
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "wltpRangeKmByVariant": {
+          "min": null,
+          "max": null,
+          "status": "unknown",
+          "note": "Broad variant-level indicative figures; NOT a confirmed range for this catalog car. Do not use for ranking until verified."
+        },
+        "fuelConsumptionLPer100Km": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "batteryKWh": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "dcChargingKw": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "lengthMm": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "safetyRating": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        }
+      },
+      "qualitativeTags": {
+        "typicalUse": {
+          "value": "mixed",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "sizeClass": {
+          "value": "compact",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        }
+      },
+      "exactTrimVerified": false,
+      "sourceUrls": [],
+      "approvedForAutomatedRanking": {
+        "powertrain": true,
+        "seats": false,
+        "trunk": false,
+        "range": false,
+        "qualitativeTags": false
+      },
+      "verificationNeeded": [
+        "Identify exact Israeli trim by model code",
+        "Find manufacturer/importer specifications for this trim",
+        "Confirm seating, luggage and range/consumption where relevant"
+      ]
+    },
+    {
+      "vehicleId": "CAR-05",
+      "manufacturer": "Kia",
+      "model": "Niro",
+      "registrationYear": 2025,
+      "catalogPowertrain": {
+        "value": "hybrid",
+        "status": "catalog_provided",
+        "note": "Powertrain from user-provided catalog (not independently verified)"
+      },
+      "specifications": {
+        "bodyType": {
+          "value": "crossover",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "seats": {
+          "value": 5,
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "trunkLitersApprox": {
+          "value": 451,
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "wltpRangeKmByVariant": {
+          "min": null,
+          "max": null,
+          "status": "unknown",
+          "note": "Broad variant-level indicative figures; NOT a confirmed range for this catalog car. Do not use for ranking until verified."
+        },
+        "fuelConsumptionLPer100Km": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "batteryKWh": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "dcChargingKw": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "lengthMm": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "safetyRating": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        }
+      },
+      "qualitativeTags": {
+        "typicalUse": {
+          "value": "mixed",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "sizeClass": {
+          "value": "family",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        }
+      },
+      "exactTrimVerified": false,
+      "sourceUrls": [],
+      "approvedForAutomatedRanking": {
+        "powertrain": true,
+        "seats": false,
+        "trunk": false,
+        "range": false,
+        "qualitativeTags": false
+      },
+      "verificationNeeded": [
+        "Identify exact Israeli trim by model code",
+        "Find manufacturer/importer specifications for this trim",
+        "Confirm seating, luggage and range/consumption where relevant"
+      ]
+    },
+    {
+      "vehicleId": "CAR-06",
+      "manufacturer": "MG",
+      "model": "MG4",
+      "registrationYear": 2025,
+      "catalogPowertrain": {
+        "value": "electric",
+        "status": "catalog_provided",
+        "note": "Powertrain from user-provided catalog (not independently verified)"
+      },
+      "specifications": {
+        "bodyType": {
+          "value": "hatchback",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "seats": {
+          "value": 5,
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "trunkLitersApprox": {
+          "value": 363,
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "wltpRangeKmByVariant": {
+          "min": 350,
+          "max": 520,
+          "status": "unverified_model_level",
+          "note": "Broad variant-level indicative figures; NOT a confirmed range for this catalog car. Do not use for ranking until verified."
+        },
+        "fuelConsumptionLPer100Km": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "batteryKWh": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "dcChargingKw": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "lengthMm": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "safetyRating": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        }
+      },
+      "qualitativeTags": {
+        "typicalUse": {
+          "value": "mixed",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "sizeClass": {
+          "value": "compact",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        }
+      },
+      "exactTrimVerified": false,
+      "sourceUrls": [],
+      "approvedForAutomatedRanking": {
+        "powertrain": true,
+        "seats": false,
+        "trunk": false,
+        "range": false,
+        "qualitativeTags": false
+      },
+      "verificationNeeded": [
+        "Identify exact Israeli trim by model code",
+        "Find manufacturer/importer specifications for this trim",
+        "Confirm seating, luggage and range/consumption where relevant"
+      ]
+    },
+    {
+      "vehicleId": "CAR-07",
+      "manufacturer": "Toyota",
+      "model": "Corolla",
+      "registrationYear": 2026,
+      "catalogPowertrain": {
+        "value": "gasoline",
+        "status": "catalog_provided",
+        "note": "Powertrain from user-provided catalog (not independently verified)"
+      },
+      "specifications": {
+        "bodyType": {
+          "value": "sedan",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "seats": {
+          "value": 5,
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "trunkLitersApprox": {
+          "value": 471,
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "wltpRangeKmByVariant": {
+          "min": null,
+          "max": null,
+          "status": "unknown",
+          "note": "Broad variant-level indicative figures; NOT a confirmed range for this catalog car. Do not use for ranking until verified."
+        },
+        "fuelConsumptionLPer100Km": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "batteryKWh": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "dcChargingKw": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "lengthMm": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "safetyRating": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        }
+      },
+      "qualitativeTags": {
+        "typicalUse": {
+          "value": "mixed",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "sizeClass": {
+          "value": "family",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        }
+      },
+      "exactTrimVerified": false,
+      "sourceUrls": [],
+      "approvedForAutomatedRanking": {
+        "powertrain": true,
+        "seats": false,
+        "trunk": false,
+        "range": false,
+        "qualitativeTags": false
+      },
+      "verificationNeeded": [
+        "Identify exact Israeli trim by model code",
+        "Find manufacturer/importer specifications for this trim",
+        "Confirm seating, luggage and range/consumption where relevant"
+      ]
+    },
+    {
+      "vehicleId": "CAR-08",
+      "manufacturer": "Hyundai",
+      "model": "Kona EV",
+      "registrationYear": 2026,
+      "catalogPowertrain": {
+        "value": "electric",
+        "status": "catalog_provided",
+        "note": "Powertrain from user-provided catalog (not independently verified)"
+      },
+      "specifications": {
+        "bodyType": {
+          "value": "small_suv",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "seats": {
+          "value": 5,
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "trunkLitersApprox": {
+          "value": 466,
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "wltpRangeKmByVariant": {
+          "min": 377,
+          "max": 514,
+          "status": "unverified_model_level",
+          "note": "Broad variant-level indicative figures; NOT a confirmed range for this catalog car. Do not use for ranking until verified."
+        },
+        "fuelConsumptionLPer100Km": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "batteryKWh": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "dcChargingKw": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "lengthMm": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "safetyRating": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        }
+      },
+      "qualitativeTags": {
+        "typicalUse": {
+          "value": "mixed",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "sizeClass": {
+          "value": "family",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        }
+      },
+      "exactTrimVerified": false,
+      "sourceUrls": [],
+      "approvedForAutomatedRanking": {
+        "powertrain": true,
+        "seats": false,
+        "trunk": false,
+        "range": false,
+        "qualitativeTags": false
+      },
+      "verificationNeeded": [
+        "Identify exact Israeli trim by model code",
+        "Find manufacturer/importer specifications for this trim",
+        "Confirm seating, luggage and range/consumption where relevant"
+      ]
+    },
+    {
+      "vehicleId": "CAR-09",
+      "manufacturer": "Toyota",
+      "model": "Corolla Cross",
+      "registrationYear": 2025,
+      "catalogPowertrain": {
+        "value": "hybrid",
+        "status": "catalog_provided",
+        "note": "Powertrain from user-provided catalog (not independently verified)"
+      },
+      "specifications": {
+        "bodyType": {
+          "value": "suv",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "seats": {
+          "value": 5,
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "trunkLitersApprox": {
+          "value": 436,
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "wltpRangeKmByVariant": {
+          "min": null,
+          "max": null,
+          "status": "unknown",
+          "note": "Broad variant-level indicative figures; NOT a confirmed range for this catalog car. Do not use for ranking until verified."
+        },
+        "fuelConsumptionLPer100Km": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "batteryKWh": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "dcChargingKw": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "lengthMm": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "safetyRating": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        }
+      },
+      "qualitativeTags": {
+        "typicalUse": {
+          "value": "mixed",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "sizeClass": {
+          "value": "family",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        }
+      },
+      "exactTrimVerified": false,
+      "sourceUrls": [],
+      "approvedForAutomatedRanking": {
+        "powertrain": true,
+        "seats": false,
+        "trunk": false,
+        "range": false,
+        "qualitativeTags": false
+      },
+      "verificationNeeded": [
+        "Identify exact Israeli trim by model code",
+        "Find manufacturer/importer specifications for this trim",
+        "Confirm seating, luggage and range/consumption where relevant"
+      ]
+    },
+    {
+      "vehicleId": "CAR-10",
+      "manufacturer": "BYD",
+      "model": "Atto 3",
+      "registrationYear": 2025,
+      "catalogPowertrain": {
+        "value": "electric",
+        "status": "catalog_provided",
+        "note": "Powertrain from user-provided catalog (not independently verified)"
+      },
+      "specifications": {
+        "bodyType": {
+          "value": "suv",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "seats": {
+          "value": 5,
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "trunkLitersApprox": {
+          "value": 440,
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "wltpRangeKmByVariant": {
+          "min": 420,
+          "max": 420,
+          "status": "unverified_model_level",
+          "note": "Broad variant-level indicative figures; NOT a confirmed range for this catalog car. Do not use for ranking until verified."
+        },
+        "fuelConsumptionLPer100Km": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "batteryKWh": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "dcChargingKw": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "lengthMm": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "safetyRating": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        }
+      },
+      "qualitativeTags": {
+        "typicalUse": {
+          "value": "mixed",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "sizeClass": {
+          "value": "family",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        }
+      },
+      "exactTrimVerified": false,
+      "sourceUrls": [],
+      "approvedForAutomatedRanking": {
+        "powertrain": true,
+        "seats": false,
+        "trunk": false,
+        "range": false,
+        "qualitativeTags": false
+      },
+      "verificationNeeded": [
+        "Identify exact Israeli trim by model code",
+        "Find manufacturer/importer specifications for this trim",
+        "Confirm seating, luggage and range/consumption where relevant"
+      ]
+    },
+    {
+      "vehicleId": "CAR-11",
+      "manufacturer": "Kia",
+      "model": "EV3",
+      "registrationYear": 2025,
+      "catalogPowertrain": {
+        "value": "electric",
+        "status": "catalog_provided",
+        "note": "Powertrain from user-provided catalog (not independently verified)"
+      },
+      "specifications": {
+        "bodyType": {
+          "value": "suv",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "seats": {
+          "value": 5,
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "trunkLitersApprox": {
+          "value": 460,
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "wltpRangeKmByVariant": {
+          "min": 436,
+          "max": 605,
+          "status": "unverified_model_level",
+          "note": "Broad variant-level indicative figures; NOT a confirmed range for this catalog car. Do not use for ranking until verified."
+        },
+        "fuelConsumptionLPer100Km": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "batteryKWh": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "dcChargingKw": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "lengthMm": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "safetyRating": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        }
+      },
+      "qualitativeTags": {
+        "typicalUse": {
+          "value": "mixed",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "sizeClass": {
+          "value": "family",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        }
+      },
+      "exactTrimVerified": false,
+      "sourceUrls": [],
+      "approvedForAutomatedRanking": {
+        "powertrain": true,
+        "seats": false,
+        "trunk": false,
+        "range": false,
+        "qualitativeTags": false
+      },
+      "verificationNeeded": [
+        "Identify exact Israeli trim by model code",
+        "Find manufacturer/importer specifications for this trim",
+        "Confirm seating, luggage and range/consumption where relevant"
+      ]
+    },
+    {
+      "vehicleId": "CAR-12",
+      "manufacturer": "Hyundai",
+      "model": "Tucson",
+      "registrationYear": 2025,
+      "catalogPowertrain": {
+        "value": "gasoline",
+        "status": "catalog_provided",
+        "note": "Powertrain from user-provided catalog (not independently verified)"
+      },
+      "specifications": {
+        "bodyType": {
+          "value": "suv",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "seats": {
+          "value": 5,
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "trunkLitersApprox": {
+          "value": 620,
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "wltpRangeKmByVariant": {
+          "min": null,
+          "max": null,
+          "status": "unknown",
+          "note": "Broad variant-level indicative figures; NOT a confirmed range for this catalog car. Do not use for ranking until verified."
+        },
+        "fuelConsumptionLPer100Km": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "batteryKWh": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "dcChargingKw": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "lengthMm": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "safetyRating": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        }
+      },
+      "qualitativeTags": {
+        "typicalUse": {
+          "value": "mixed",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "sizeClass": {
+          "value": "family",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        }
+      },
+      "exactTrimVerified": false,
+      "sourceUrls": [],
+      "approvedForAutomatedRanking": {
+        "powertrain": true,
+        "seats": false,
+        "trunk": false,
+        "range": false,
+        "qualitativeTags": false
+      },
+      "verificationNeeded": [
+        "Identify exact Israeli trim by model code",
+        "Find manufacturer/importer specifications for this trim",
+        "Confirm seating, luggage and range/consumption where relevant"
+      ]
+    },
+    {
+      "vehicleId": "CAR-13",
+      "manufacturer": "Mazda",
+      "model": "Mazda 3",
+      "registrationYear": 2025,
+      "catalogPowertrain": {
+        "value": "gasoline",
+        "status": "catalog_provided",
+        "note": "Powertrain from user-provided catalog (not independently verified)"
+      },
+      "specifications": {
+        "bodyType": {
+          "value": "unknown",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "seats": {
+          "value": 5,
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "trunkLitersApprox": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "wltpRangeKmByVariant": {
+          "min": null,
+          "max": null,
+          "status": "unknown",
+          "note": "Broad variant-level indicative figures; NOT a confirmed range for this catalog car. Do not use for ranking until verified."
+        },
+        "fuelConsumptionLPer100Km": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "batteryKWh": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "dcChargingKw": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "lengthMm": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "safetyRating": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        }
+      },
+      "qualitativeTags": {
+        "typicalUse": {
+          "value": "mixed",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "sizeClass": {
+          "value": "compact",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        }
+      },
+      "exactTrimVerified": false,
+      "sourceUrls": [],
+      "approvedForAutomatedRanking": {
+        "powertrain": true,
+        "seats": false,
+        "trunk": false,
+        "range": false,
+        "qualitativeTags": false
+      },
+      "verificationNeeded": [
+        "Identify exact Israeli trim by model code",
+        "Find manufacturer/importer specifications for this trim",
+        "Confirm seating, luggage and range/consumption where relevant"
+      ]
+    },
+    {
+      "vehicleId": "CAR-14",
+      "manufacturer": "Tesla",
+      "model": "Model 3",
+      "registrationYear": 2025,
+      "catalogPowertrain": {
+        "value": "electric",
+        "status": "catalog_provided",
+        "note": "Powertrain from user-provided catalog (not independently verified)"
+      },
+      "specifications": {
+        "bodyType": {
+          "value": "sedan",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "seats": {
+          "value": 5,
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "trunkLitersApprox": {
+          "value": 594,
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "wltpRangeKmByVariant": {
+          "min": 513,
+          "max": 702,
+          "status": "unverified_model_level",
+          "note": "Broad variant-level indicative figures; NOT a confirmed range for this catalog car. Do not use for ranking until verified."
+        },
+        "fuelConsumptionLPer100Km": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "batteryKWh": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "dcChargingKw": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "lengthMm": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "safetyRating": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        }
+      },
+      "qualitativeTags": {
+        "typicalUse": {
+          "value": "long_distance",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "sizeClass": {
+          "value": "family",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        }
+      },
+      "exactTrimVerified": false,
+      "sourceUrls": [],
+      "approvedForAutomatedRanking": {
+        "powertrain": true,
+        "seats": false,
+        "trunk": false,
+        "range": false,
+        "qualitativeTags": false
+      },
+      "verificationNeeded": [
+        "Identify exact Israeli trim by model code",
+        "Find manufacturer/importer specifications for this trim",
+        "Confirm seating, luggage and range/consumption where relevant"
+      ]
+    },
+    {
+      "vehicleId": "CAR-15",
+      "manufacturer": "Skoda",
+      "model": "Octavia",
+      "registrationYear": 2025,
+      "catalogPowertrain": {
+        "value": "gasoline",
+        "status": "catalog_provided",
+        "note": "Powertrain from user-provided catalog (not independently verified)"
+      },
+      "specifications": {
+        "bodyType": {
+          "value": "unknown",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "seats": {
+          "value": 5,
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "trunkLitersApprox": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "wltpRangeKmByVariant": {
+          "min": null,
+          "max": null,
+          "status": "unknown",
+          "note": "Broad variant-level indicative figures; NOT a confirmed range for this catalog car. Do not use for ranking until verified."
+        },
+        "fuelConsumptionLPer100Km": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "batteryKWh": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "dcChargingKw": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "lengthMm": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "safetyRating": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        }
+      },
+      "qualitativeTags": {
+        "typicalUse": {
+          "value": "mixed",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "sizeClass": {
+          "value": "family",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        }
+      },
+      "exactTrimVerified": false,
+      "sourceUrls": [],
+      "approvedForAutomatedRanking": {
+        "powertrain": true,
+        "seats": false,
+        "trunk": false,
+        "range": false,
+        "qualitativeTags": false
+      },
+      "verificationNeeded": [
+        "Identify exact Israeli trim by model code",
+        "Find manufacturer/importer specifications for this trim",
+        "Confirm seating, luggage and range/consumption where relevant"
+      ]
+    },
+    {
+      "vehicleId": "CAR-16",
+      "manufacturer": "Kia",
+      "model": "Sportage HEV",
+      "registrationYear": 2026,
+      "catalogPowertrain": {
+        "value": null,
+        "status": "unknown",
+        "note": "Catalog says plug-in, commercial name HEV suggests hybrid; conflict unresolved; exclude from powertrain matching."
+      },
+      "specifications": {
+        "bodyType": {
+          "value": "suv",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "seats": {
+          "value": 5,
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "trunkLitersApprox": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "wltpRangeKmByVariant": {
+          "min": null,
+          "max": null,
+          "status": "unknown",
+          "note": "Broad variant-level indicative figures; NOT a confirmed range for this catalog car. Do not use for ranking until verified."
+        },
+        "fuelConsumptionLPer100Km": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "batteryKWh": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "dcChargingKw": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "lengthMm": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "safetyRating": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        }
+      },
+      "qualitativeTags": {
+        "typicalUse": {
+          "value": "mixed",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "sizeClass": {
+          "value": "family",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        }
+      },
+      "exactTrimVerified": false,
+      "sourceUrls": [],
+      "approvedForAutomatedRanking": {
+        "powertrain": false,
+        "seats": false,
+        "trunk": false,
+        "range": false,
+        "qualitativeTags": false
+      },
+      "verificationNeeded": [
+        "Identify exact Israeli trim by model code",
+        "Find manufacturer/importer specifications for this trim",
+        "Confirm seating, luggage and range/consumption where relevant"
+      ]
+    },
+    {
+      "vehicleId": "CAR-17",
+      "manufacturer": "BYD",
+      "model": "Seal",
+      "registrationYear": 2025,
+      "catalogPowertrain": {
+        "value": "electric",
+        "status": "catalog_provided",
+        "note": "Powertrain from user-provided catalog (not independently verified)"
+      },
+      "specifications": {
+        "bodyType": {
+          "value": "sedan",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "seats": {
+          "value": 5,
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "trunkLitersApprox": {
+          "value": 400,
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "wltpRangeKmByVariant": {
+          "min": 460,
+          "max": 570,
+          "status": "unverified_model_level",
+          "note": "Broad variant-level indicative figures; NOT a confirmed range for this catalog car. Do not use for ranking until verified."
+        },
+        "fuelConsumptionLPer100Km": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "batteryKWh": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "dcChargingKw": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "lengthMm": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "safetyRating": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        }
+      },
+      "qualitativeTags": {
+        "typicalUse": {
+          "value": "long_distance",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "sizeClass": {
+          "value": "family",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        }
+      },
+      "exactTrimVerified": false,
+      "sourceUrls": [],
+      "approvedForAutomatedRanking": {
+        "powertrain": true,
+        "seats": false,
+        "trunk": false,
+        "range": false,
+        "qualitativeTags": false
+      },
+      "verificationNeeded": [
+        "Identify exact Israeli trim by model code",
+        "Find manufacturer/importer specifications for this trim",
+        "Confirm seating, luggage and range/consumption where relevant"
+      ]
+    },
+    {
+      "vehicleId": "CAR-18",
+      "manufacturer": "Toyota",
+      "model": "RAV4",
+      "registrationYear": 2025,
+      "catalogPowertrain": {
+        "value": "hybrid",
+        "status": "catalog_provided",
+        "note": "Powertrain from user-provided catalog (not independently verified)"
+      },
+      "specifications": {
+        "bodyType": {
+          "value": "suv",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "seats": {
+          "value": 5,
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "trunkLitersApprox": {
+          "value": 580,
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "wltpRangeKmByVariant": {
+          "min": null,
+          "max": null,
+          "status": "unknown",
+          "note": "Broad variant-level indicative figures; NOT a confirmed range for this catalog car. Do not use for ranking until verified."
+        },
+        "fuelConsumptionLPer100Km": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "batteryKWh": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "dcChargingKw": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "lengthMm": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "safetyRating": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        }
+      },
+      "qualitativeTags": {
+        "typicalUse": {
+          "value": "mixed",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "sizeClass": {
+          "value": "family",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        }
+      },
+      "exactTrimVerified": false,
+      "sourceUrls": [],
+      "approvedForAutomatedRanking": {
+        "powertrain": true,
+        "seats": false,
+        "trunk": false,
+        "range": false,
+        "qualitativeTags": false
+      },
+      "verificationNeeded": [
+        "Identify exact Israeli trim by model code",
+        "Find manufacturer/importer specifications for this trim",
+        "Confirm seating, luggage and range/consumption where relevant"
+      ]
+    },
+    {
+      "vehicleId": "CAR-19",
+      "manufacturer": "Kia",
+      "model": "Carnival",
+      "registrationYear": 2025,
+      "catalogPowertrain": {
+        "value": "gasoline",
+        "status": "catalog_provided",
+        "note": "Powertrain from user-provided catalog (not independently verified)"
+      },
+      "specifications": {
+        "bodyType": {
+          "value": "minivan",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "seats": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "trunkLitersApprox": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "wltpRangeKmByVariant": {
+          "min": null,
+          "max": null,
+          "status": "unknown",
+          "note": "Broad variant-level indicative figures; NOT a confirmed range for this catalog car. Do not use for ranking until verified."
+        },
+        "fuelConsumptionLPer100Km": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "batteryKWh": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "dcChargingKw": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "lengthMm": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "safetyRating": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        }
+      },
+      "qualitativeTags": {
+        "typicalUse": {
+          "value": "family",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "sizeClass": {
+          "value": "large_family",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        }
+      },
+      "exactTrimVerified": false,
+      "sourceUrls": [],
+      "approvedForAutomatedRanking": {
+        "powertrain": true,
+        "seats": false,
+        "trunk": false,
+        "range": false,
+        "qualitativeTags": false
+      },
+      "verificationNeeded": [
+        "Identify exact Israeli trim by model code",
+        "Find manufacturer/importer specifications for this trim",
+        "Confirm seating, luggage and range/consumption where relevant",
+        "Verify whether 7, 8 or 9 seats for this exact version"
+      ]
+    },
+    {
+      "vehicleId": "CAR-20",
+      "manufacturer": "Hyundai",
+      "model": "Santa Fe",
+      "registrationYear": 2025,
+      "catalogPowertrain": {
+        "value": "gasoline",
+        "status": "catalog_provided",
+        "note": "Powertrain from user-provided catalog (not independently verified)"
+      },
+      "specifications": {
+        "bodyType": {
+          "value": "suv",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "seats": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "trunkLitersApprox": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "wltpRangeKmByVariant": {
+          "min": null,
+          "max": null,
+          "status": "unknown",
+          "note": "Broad variant-level indicative figures; NOT a confirmed range for this catalog car. Do not use for ranking until verified."
+        },
+        "fuelConsumptionLPer100Km": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "batteryKWh": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "dcChargingKw": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "lengthMm": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        },
+        "safetyRating": {
+          "value": null,
+          "status": "unknown",
+          "note": "Not established for exact catalog variant"
+        }
+      },
+      "qualitativeTags": {
+        "typicalUse": {
+          "value": "family",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        },
+        "sizeClass": {
+          "value": "large_family",
+          "status": "unverified_model_level",
+          "note": "Model-level general knowledge; exact Israeli catalog trim not verified"
+        }
+      },
+      "exactTrimVerified": false,
+      "sourceUrls": [],
+      "approvedForAutomatedRanking": {
+        "powertrain": true,
+        "seats": false,
+        "trunk": false,
+        "range": false,
+        "qualitativeTags": false
+      },
+      "verificationNeeded": [
+        "Identify exact Israeli trim by model code",
+        "Find manufacturer/importer specifications for this trim",
+        "Confirm seating, luggage and range/consumption where relevant",
+        "Verify whether 7, 8 or 9 seats for this exact version"
+      ]
+    }
+  ]
+}

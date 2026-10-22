@@ -1,17 +1,21 @@
 'use client';
 
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useLayoutEffect, useMemo, useState } from 'react';
+import { chatTiming } from '../../lib/chat-timing';
 
-export const TYPING_MS_PER_CHARACTER = 35;
-const LONG_RESPONSE_THRESHOLD = 400;
-const MAX_TYPING_SPEED_MULTIPLIER = 1.5;
-const MAX_REVEAL_DURATION_MS = 15000;
+/** A newly received reply is fully visible: ends the frontend timing phases (no-ops when none were started). */
+function revealed() { chatTiming.end('reply_render'); chatTiming.end('reply_on_screen'); }
 
-/** Consistent rhythm per reply, gently faster for long text; graphemes stay intact. */
+/**
+ * The reply is complete when it arrives, so the reveal is only a short, subtle transition: it never makes the
+ * employee wait for text that is already there. Short replies finish sooner; every reply finishes within the cap.
+ */
+export const REVEAL_MS_PER_CHARACTER = 3;
+export const MAX_REVEAL_DURATION_MS = 320;
+
 export function revealCount(length: number, elapsed: number) {
   if (length <= 0) return 0;
-  const speedMultiplier = Math.min(MAX_TYPING_SPEED_MULTIPLIER, Math.max(1, length / LONG_RESPONSE_THRESHOLD));
-  const duration = Math.min(MAX_REVEAL_DURATION_MS, length * TYPING_MS_PER_CHARACTER / speedMultiplier);
+  const duration = Math.min(MAX_REVEAL_DURATION_MS, length * REVEAL_MS_PER_CHARACTER);
   return Math.min(length, Math.floor(length * Math.max(0, elapsed) / duration));
 }
 export function textGraphemes(text: string) {
@@ -22,11 +26,10 @@ export function textGraphemes(text: string) {
 export function ProgressiveText({ text, animate }: { text: string; animate: boolean }) {
   const parts = useMemo(() => textGraphemes(text), [text]);
   const [visible, setVisible] = useState(parts.length);
-  const finishRef = useRef<() => void>(() => {});
   useLayoutEffect(() => {
     if (!animate || !text) return;
     const preference = window.matchMedia('(prefers-reduced-motion: reduce)');
-    if (preference.matches) return;
+    if (preference.matches) { const frame = requestAnimationFrame(revealed); return () => cancelAnimationFrame(frame); }
     let frame = 0;
     let stopped = false;
     const start = performance.now();
@@ -36,9 +39,9 @@ export function ProgressiveText({ text, animate }: { text: string; animate: bool
       const count = revealCount(parts.length, now - start);
       setVisible(count);
       if (count < parts.length) frame = requestAnimationFrame(tick);
+      else revealed();
     };
-    const finish = () => { stopped = true; cancelAnimationFrame(frame); setVisible(parts.length); };
-    finishRef.current = finish;
+    const finish = () => { stopped = true; cancelAnimationFrame(frame); setVisible(parts.length); revealed(); };
     preference.addEventListener('change', finish);
     frame = requestAnimationFrame(tick);
     return () => { stopped = true; cancelAnimationFrame(frame); preference.removeEventListener('change', finish); };
@@ -49,7 +52,6 @@ export function ProgressiveText({ text, animate }: { text: string; animate: bool
   return <span className="cw-reveal" dir="auto">
     <span className="cw-reveal-reserve" aria-hidden="true">{text}</span>
     <span className="cw-sr-only">{text}</span>
-    <span className="cw-reveal-visible" aria-hidden="true">{parts.slice(0, visible).join('')}<span className="cw-reveal-cursor" /></span>
-    <button type="button" className="cw-reveal-all" onClick={() => finishRef.current()}>הצג הכול</button>
+    <span className="cw-reveal-visible" aria-hidden="true">{parts.slice(0, visible).join('')}</span>
   </span>;
 }

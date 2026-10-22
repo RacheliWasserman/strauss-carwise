@@ -4,7 +4,7 @@ import { getAuthenticatedProfile } from '@/lib/require-authenticated-user';
 import { getOwnIdentity } from '@/lib/identity/identity-repository';
 import { greetingName } from '@/lib/identity/greeting';
 import { needsProfileCompletion } from '@/lib/identity/employee-identity';
-import { resolveVehicleIntent } from '@/lib/catalog/showroom-service';
+import { resolveComparisonIntent, resolveVehicleIntent } from '@/lib/catalog/showroom-service';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,6 +19,9 @@ export default async function EmployeePage({ searchParams }: { searchParams: Pro
   const account = identity.status === 'complete'
     ? { firstName: greetingName(identity.firstName), fullName: `${identity.firstName} ${identity.lastName}`.trim() } : undefined;
   // A vehicle chosen on the catalog page (exact active catalog ID only); the chat sends its selection once.
-  const intent: VehicleIntent | undefined = await resolveVehicleIntent((await searchParams).vehicle);
-  return <EmployeeChat key={profile.userId} userId={profile.userId} account={account} vehicleIntent={intent} />;
+  const params = await searchParams;
+  const intent: VehicleIntent | undefined = await resolveVehicleIntent(params.vehicle);
+  // Vehicles to compare, chosen in CarWise Match (exact active catalog IDs only).
+  const comparison = await resolveComparisonIntent(params.compare);
+  return <EmployeeChat key={profile.userId} userId={profile.userId} account={account} vehicleIntent={intent} comparisonIntent={comparison} />;
 }

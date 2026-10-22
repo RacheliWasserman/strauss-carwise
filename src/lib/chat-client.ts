@@ -75,7 +75,8 @@ export const chatApi = {
     pagePath(`/api/conversations/${uuid.parse(id)}/messages`, cursor),
     z.object({ messages: z.array(chatMessageSchema), nextCursor: cursorSchema.nullable() }), { signal }
   ),
-  create: (operation: OutgoingMessage) => request('/api/conversations', z.object({ conversationId: uuid }),
+  // The saved first message comes back with the new conversation, so the reply can start without reloading the thread.
+  create: (operation: OutgoingMessage) => request('/api/conversations', z.object({ conversationId: uuid, message: chatMessageSchema.optional() }),
     post({ body: operation.body, clientRequestId: operation.requestId })),
   assistant: (id: string, messageId: string, statusOnly = false, signal?: AbortSignal) => request(
     `/api/conversations/${uuid.parse(id)}/assistant`,
@@ -134,6 +135,16 @@ export function confirmedOutgoing(operation: OutgoingMessage, messages: ChatMess
   return messages.find(message => message.conversation_id === operation.conversationId
     && message.client_message_id === operation.requestId && message.sender_type === 'employee'
     && message.sender_user_id === userId && message.body === operation.body);
+}
+/**
+ * The saved first message of a conversation this client just created, when it is exactly the employee's own message:
+ * the thread can open with it (and the reply start) without reloading. Anything else returns null and reloads.
+ */
+export function createdThreadSeed(operation: OutgoingMessage, result: DeliveryResult, userId: string): ChatMessage[] | null {
+  const first = result.message;
+  if (operation.conversationId || !first) return null;
+  return first.conversation_id === result.conversationId && first.sender_type === 'employee' &&
+    first.sender_user_id === userId && first.body === operation.body ? [first] : null;
 }
 export function conversationIdFrom(value: string | null): string | null {
   const parsed = uuid.safeParse(value); return parsed.success ? parsed.data : null;

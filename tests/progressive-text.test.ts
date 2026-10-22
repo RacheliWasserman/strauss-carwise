@@ -1,21 +1,21 @@
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { ProgressiveText, revealCount, textGraphemes, TYPING_MS_PER_CHARACTER } from '../src/components/chat/progressive-text';
+import { MAX_REVEAL_DURATION_MS, ProgressiveText, REVEAL_MS_PER_CHARACTER, revealCount, textGraphemes } from '../src/components/chat/progressive-text';
 
 describe('assistant text reveal', () => {
-  it('reveals short Hebrew progressively and completes without a long wait', () => {
+  it('reveals a short Hebrew reply as a brief transition, never character-by-character typing', () => {
+    expect(REVEAL_MS_PER_CHARACTER).toBeLessThanOrEqual(5);
     expect(revealCount(20, 0)).toBe(0);
-    expect(TYPING_MS_PER_CHARACTER).toBe(35);
-    expect(revealCount(20, 34)).toBe(0);
-    expect(revealCount(20, 35)).toBe(1);
-    expect(revealCount(20, 350)).toBe(10);
-    expect(revealCount(20, 700)).toBe(20);
+    expect(revealCount(20, 30)).toBe(10);
+    expect(revealCount(20, 60)).toBe(20);
   });
-  it('accelerates long answers in chunks and bounds duration', () => {
-    expect(revealCount(600, 7000)).toBe(300);
-    expect(revealCount(600, 14000)).toBe(600);
-    expect(revealCount(12000, 15000)).toBe(12000);
+  it('shows long and very long replies in full within the same short cap', () => {
+    expect(MAX_REVEAL_DURATION_MS).toBeLessThanOrEqual(400);
+    expect(revealCount(600, MAX_REVEAL_DURATION_MS / 2)).toBe(300);
+    expect(revealCount(600, MAX_REVEAL_DURATION_MS)).toBe(600);
+    expect(revealCount(12000, MAX_REVEAL_DURATION_MS)).toBe(12000);
+    expect(revealCount(12000, 60000)).toBe(12000);
     expect(revealCount(0, 0)).toBe(0);
     expect(revealCount(10, -1)).toBe(0);
   });
@@ -35,6 +35,15 @@ describe('assistant text reveal', () => {
     expect(html).toContain('&lt;script&gt;');
     expect(html).not.toContain('cw-reveal-cursor');
     expect(html).not.toContain('<button');
+    vi.unstubAllGlobals();
+  });
+  it('keeps mixed Hebrew, English and numbers in one bidi-isolated block in reading order', () => {
+    vi.stubGlobal('React', React);
+    const text = 'בחרת ב־ATTO 3 (CAR-10). ההשפעה על הנטו: ‎-1,234 ₪ לחודש.';
+    const html = renderToStaticMarkup(React.createElement(ProgressiveText, { text, animate: true }));
+    // Server markup (and the first paint before any effect) is the complete text: nothing is hidden or reordered.
+    expect(html).toBe(`<span class="cw-reveal" dir="auto">${text}</span>`);
+    expect(textGraphemes(text).join('')).toBe(text);
     vi.unstubAllGlobals();
   });
 });

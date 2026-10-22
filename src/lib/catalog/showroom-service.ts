@@ -36,6 +36,21 @@ export async function resolveVehicleIntent(value: string | string[] | undefined)
   } catch { return undefined; }
 }
 
+/**
+ * Several vehicles to compare in the chat (from CarWise Match): 2–3 distinct exact IDs, every one an ACTIVE catalog
+ * vehicle read with the employee's own client. Anything else is ignored as a whole.
+ */
+export async function resolveComparisonIntent(value: string | string[] | undefined): Promise<Array<{ id: string; display_name: string }> | undefined> {
+  if (typeof value !== 'string' || value.length > 200) return undefined;
+  const ids = value.split(',');
+  if (ids.length < 2 || ids.length > 3 || new Set(ids).size !== ids.length || !ids.every(id => /^[A-Za-z0-9_-]{1,100}$/.test(id))) return undefined;
+  try {
+    const catalog = await activeCatalog(searchAdvisorVehicles);
+    const rows = ids.map(id => catalog.find(vehicle => vehicle.id === id));
+    return rows.every(Boolean) ? rows.map(row => ({ id: row!.id, display_name: row!.display_name })) : undefined;
+  } catch { return undefined; }
+}
+
 async function eligibilityBasis(userId: string): Promise<EligibilityBasis> {
   try {
     const profile = await getLatestConfirmedEmployeeData(userId);

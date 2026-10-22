@@ -51,14 +51,15 @@ export async function defaultFinancialDependencies(): Promise<FinancialDependenc
     rules: () => getCalculationRules(),
     async vehicles(ids) {
       const rows = await vehicles.getActiveVehicleRowsByIds(await createSupabaseServerClient(), ids);
-      const result: VehicleLookup = new Map();
-      for (const id of ids) {
+      // Each car's official tax lookup is independent, so they run together; results keep the requested order.
+      const entries = await Promise.all(ids.map(async (id): Promise<[string, { car: Car } | { error: 'not_found' | 'tax_value_missing' }]> => {
         const row = rows.find(item => item.id === id);
-        if (!row) { result.set(id, { error: 'not_found' }); continue; }
+        if (!row) return [id, { error: 'not_found' }];
         // The official tax lookup throws unless exactly one record exists. Never substitute a value.
-        try { result.set(id, { car: await vehicles.toCalculatorCar(row) }); }
-        catch { result.set(id, { error: 'tax_value_missing' }); }
-      }
+        try { return [id, { car: await vehicles.toCalculatorCar(row) }]; }
+        catch { return [id, { error: 'tax_value_missing' }]; }
+      }));
+      const result: VehicleLookup = new Map(entries);
       return result;
     },
     async findVehicles(name) {

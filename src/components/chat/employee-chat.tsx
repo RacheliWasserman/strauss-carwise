@@ -9,7 +9,7 @@ import { ChatIcon } from './chat-icon';
 import { CarWiseCarLoader } from '../ui/carwise-car-loader';
 import { useEmployeeChat } from './use-employee-chat';
 import { PayslipUpload } from './payslip-upload';
-import { selectCardMessage } from './catalog-cards';
+import { compareCardsMessage, selectCardMessage } from './catalog-cards';
 import { greeting } from '../../lib/identity/greeting';
 import './employee-chat.css';
 
@@ -17,7 +17,11 @@ export type EmployeeAccount = { firstName: string; fullName: string };
 /** A catalog vehicle the employee chose on the catalog page (validated on the server against the active catalog). */
 export type VehicleIntent = { id: string; display_name: string };
 
-export function EmployeeChat({ userId, account, vehicleIntent }: { userId: string; account?: EmployeeAccount; vehicleIntent?: VehicleIntent }) {
+export function EmployeeChat({ userId, account, vehicleIntent, comparisonIntent }: {
+  userId: string; account?: EmployeeAccount; vehicleIntent?: VehicleIntent;
+  /** Several catalog vehicles to compare (validated on the server against the active catalog). */
+  comparisonIntent?: VehicleIntent[];
+}) {
   const firstName = account?.firstName;
   const chat = useEmployeeChat(userId);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -44,12 +48,15 @@ export function EmployeeChat({ userId, account, vehicleIntent }: { userId: strin
   // once into the conversation the employee was in (or a new one). The existing flow then checks eligibility, asks for
   // anything missing, and calculates only after the profile is approved. The parameter is removed so a reload never resends.
   const { sendWhenReady } = chat;
+  // "Compare in the chat" from CarWise Match: the same comparison message as the chat's own compare bar.
   const intentSent = useRef(false);
   useEffect(() => {
-    if (!vehicleIntent || intentSent.current || !sendWhenReady(selectCardMessage(vehicleIntent))) return;
+    const message = comparisonIntent && comparisonIntent.length > 1 ? compareCardsMessage(comparisonIntent)
+      : vehicleIntent ? selectCardMessage(vehicleIntent) : null;
+    if (!message || intentSent.current || !sendWhenReady(message)) return;
     intentSent.current = true;
     const url = new URL(window.location.href);
-    url.searchParams.delete('vehicle');
+    url.searchParams.delete('vehicle'); url.searchParams.delete('compare');
     window.history.replaceState(null, '', url);
   });
 
@@ -79,7 +86,8 @@ export function EmployeeChat({ userId, account, vehicleIntent }: { userId: strin
             onPayslip={() => setPayslipOpen(true)} />
           : <><span className="cw-petal-watermark" aria-hidden="true"><i /><i /></span><div className="cw-welcome-scroll"><ChatWelcome firstName={firstName} disabled={!chat.ready} onSuggest={body => { chat.setDraft(body); input.current?.focus(); }} /></div></>}
         <ChatComposer value={chat.draft} onChange={chat.setDraft} onSubmit={chat.submit} sending={chat.sending} pending={locked}
-          disabled={!chat.ready || chat.assistant.thinking || (!locked && (chat.threadLoading || Boolean(chat.threadError && !chat.messages.length)))}
+          waiting={chat.assistant.thinking}
+          disabled={!chat.ready || (!locked && (chat.threadLoading || Boolean(chat.threadError && !chat.messages.length)))}
           error={chat.sendError} needsLogin={chat.needsLogin} textareaRef={input}
           onPayslip={() => setPayslipOpen(true)} payslipDisabled={!chat.activeId || locked || chat.sending || chat.assistant.thinking || chat.threadLoading} />
         {payslipOpen && chat.activeId && <PayslipUpload conversationId={chat.activeId} busy={locked || chat.sending || chat.assistant.thinking}
