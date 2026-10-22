@@ -22,6 +22,8 @@ export function rememberActiveConversation(userId: string, id: string | null) {
 export function useEmployeeChat(userId: string) {
   const activeKey = activeKeyOf(userId);
   const pendingKey = `carwise:pending:${userId}`;
+  /** An unsent draft survives leaving the chat (profile, catalog) for this browser tab only. */
+  const draftKey = `carwise:draft:${userId}`;
   const [ready, setReady] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
@@ -80,9 +82,11 @@ export function useEmployeeChat(userId: string) {
     const urlId = conversationIdFrom(new URLSearchParams(window.location.search).get('conversation'));
     let savedId: string | null = null;
     let operation: OutgoingMessage | null = null;
+    let savedDraft = '';
     try {
       savedId = conversationIdFrom(localStorage.getItem(activeKey));
       operation = parseOutgoing(sessionStorage.getItem(pendingKey));
+      savedDraft = sessionStorage.getItem(draftKey)?.slice(0, 16000) ?? '';
     } catch { /* Private browsing can disable browser storage. */ }
     pendingRef.current = operation;
     setPending(operation);
@@ -90,9 +94,15 @@ export function useEmployeeChat(userId: string) {
     if (operation) {
       setDraft(operation.body);
       setSendError('שליחה קודמת לא אושרה. אפשר ללחוץ על "ניסיון חוזר" כדי לוודא שההודעה נשמרה פעם אחת.');
-    }
+    } else if (savedDraft.trim()) setDraft(savedDraft);
     setReady(true);
-  }, [activeKey, pendingKey]);
+  }, [activeKey, pendingKey, draftKey]);
+
+  useEffect(() => {
+    if (!ready) return;
+    try { if (draft.trim() && !pendingRef.current) sessionStorage.setItem(draftKey, draft); else sessionStorage.removeItem(draftKey); }
+    catch { /* Optional convenience only. */ }
+  }, [draft, ready, draftKey]);
 
   const loadHistory = useCallback(async (cursor: ChatCursor | null = null, signal?: AbortSignal) => {
     if (historyLock.current) return;

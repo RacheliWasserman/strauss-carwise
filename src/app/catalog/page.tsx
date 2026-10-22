@@ -15,11 +15,11 @@ export default async function CatalogPage() {
   const profile = await getAuthenticatedProfile();
   if (!profile) redirect('/login');
   if (profile.role !== 'employee') redirect('/representative');
-  const identity = await getOwnIdentity(profile.userId);
+  // The account name and the catalog with personal eligibility are independent reads: both start at once.
+  const [identity, showroom] = await Promise.all([getOwnIdentity(profile.userId), loadShowroom(profile.userId)]);
   if (needsProfileCompletion(identity.status)) redirect('/complete-profile');
   const account = identity.status === 'complete'
     ? { firstName: greetingName(identity.firstName), fullName: `${identity.firstName} ${identity.lastName}`.trim() } : undefined;
-  const showroom = await loadShowroom(profile.userId);
   // Hebrew spellings for search, only for vehicles actually in the active catalog.
   const aliases = showroom.status === 'ready'
     ? Object.fromEntries(showroom.vehicles.map(vehicle => [vehicle.id, MODEL_ALIASES[vehicle.display_name] ?? []])) : {};

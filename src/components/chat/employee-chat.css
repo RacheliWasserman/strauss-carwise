@@ -18,6 +18,20 @@
 .cw-sidebar-brand { display: flex; align-items: center; gap: 12px; padding: 0 7px 32px; }
 .cw-new-chat { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border: 1px solid #8bd6c42e; border-radius: 13px; background: #e1f4e9; color: #194e48; font-weight: 700 !important; box-shadow: 0 4px 12px #082a3326; }
 .cw-new-chat:hover:not(:disabled) { background: #c9eddf; transform: translateY(-2px); }
+/* "הפרופיל שלי" (chat-sidebar.tsx): directly above "שיחה חדשה", quieter than it, same width. */
+.cw-profile-nav { display: flex; align-items: center; gap: 11px; margin: 0 0 10px; padding: 10px 13px; border: 1px solid #8bd6c430; border-radius: 13px; background: #ffffff0d; color: #e8f2f3; text-decoration: none; transition: background .18s, border-color .18s, transform .18s; }
+.cw-profile-nav:hover { background: #ffffff17; border-color: #8bd6c466; transform: translateY(-1px); }
+.cw-profile-nav:focus-visible { outline: 3px solid #d18455; outline-offset: 3px; }
+.cw-profile-nav[aria-disabled="true"] { opacity: .5; cursor: default; transform: none; }
+.cw-profile-nav-icon { width: 32px; height: 32px; flex-shrink: 0; display: grid; place-items: center; border-radius: 10px; background: #e1f4e91f; color: #a6e6d4; }
+.cw-profile-nav-icon svg { width: 18px; height: 18px; }
+.cw-profile-nav-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.cw-profile-nav-text strong { font-size: 13.5px; font-weight: 700; }
+.cw-profile-nav-text span { font-size: 11px; color: #a9cbc9; }
+.cw-profile-nav-active { background: #e1f4e9; border-color: #c9eddf; color: #12423f; }
+.cw-profile-nav-active:hover { background: #e1f4e9; }
+.cw-profile-nav-active .cw-profile-nav-icon { background: #137c77; color: #fff; }
+.cw-profile-nav-active .cw-profile-nav-text span { color: #2f6b63; }
 .cw-new-chat-corner { margin-inline-start: auto; opacity: .65; font-size: 20px; }
 .cw-history-heading { display: flex; justify-content: space-between; align-items: center; padding: 29px 9px 8px; color: #b8d0d5; font-size: 12px; }
 .cw-history-heading svg { width: 15px; height: 15px; opacity: .7; }

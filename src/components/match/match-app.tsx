@@ -7,7 +7,7 @@ import { ChatSidebar } from '../chat/chat-sidebar';
 import { ChatIcon, type ChatIconName } from '../chat/chat-icon';
 import { rememberActiveConversation } from '../chat/use-employee-chat';
 import type { EmployeeAccount } from '../chat/employee-chat';
-import { useConversationList } from '../catalog/catalog-app';
+import { useConversationList } from '../chat/use-conversation-list';
 import { VehiclePhoto } from '../catalog/vehicle-photo';
 import { CarWiseCarLoader } from '../ui/carwise-car-loader';
 import { FAMILY_GROUP, groupLabel, netImpactHref, propulsion } from '@/lib/catalog/showroom';

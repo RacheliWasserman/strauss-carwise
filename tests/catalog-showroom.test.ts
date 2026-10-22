@@ -258,3 +258,23 @@ describe('the rendered catalog (server-rendered markup)', () => {
     expect(css).toMatch(/@media \(max-width: 800px\) \{[\s\S]*\.cw-showroom-grid \{ grid-template-columns: minmax\(0, 1fr\)/);
   });
 });
+
+describe('catalog page speed (simulated latency, no live services)', () => {
+  it('reads the catalog, the confirmed profile, the official roles and the rules concurrently', async () => {
+    const ROUND_TRIP = 60;
+    const slow = <T>(value: T) => () => new Promise<T>(resolve => setTimeout(() => resolve(value), ROUND_TRIP));
+    const started: Record<string, number> = {};
+    const t0 = Date.now();
+    const track = <T>(name: string, run: () => Promise<T>) => () => { started[name] ??= Date.now() - t0; return run(); };
+    mocks.search.mockImplementation(track('catalog', slow({ vehicles: CATALOG, hasMore: false, nextCursor: null, match: 'multiple' })));
+    mocks.profile.mockImplementation(track('profile', slow(confirmed('מנהל/ת מוצר'))));
+    mocks.occupations.mockImplementation(track('occupations', slow([occupation('מנהל/ת מוצר', 'ג')])));
+    mocks.rules.mockImplementation(track('rules', slow(RULES)));
+    const showroom = await loadShowroom(USER);
+    const elapsed = Date.now() - t0;
+    expect(showroom.status === 'ready' && showroom.basis.kind).toBe('confirmed');
+    // Before: catalog, then profile, then roles (rules beside them) = 3 round trips in a row. Now: one.
+    for (const name of ['catalog', 'profile', 'occupations', 'rules']) expect(started[name], name).toBeLessThan(ROUND_TRIP / 2);
+    expect(elapsed).toBeLessThan(ROUND_TRIP * 2);
+  });
+});

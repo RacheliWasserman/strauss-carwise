@@ -147,11 +147,22 @@ function NetImpactAction({ vehicle, eligibility, large = false }: { vehicle: Sho
   </Link>;
 }
 
+/**
+ * A click anywhere on the card (photo included) opens the vehicle's details, except on the card's own controls, which
+ * keep their actions; dragging to select text does not open it either. For keyboard users the model name is the
+ * details button, so the card adds no extra tab stop.
+ */
+export function cardClickOpensDetails(target: EventTarget | null, selectedText = '') {
+  if (selectedText.trim()) return false;
+  return !(typeof Element !== 'undefined' && target instanceof Element && target.closest('a, button, input, select, textarea, label, [role="button"]'));
+}
+
 function VehicleCard({ vehicle, eligibility, priority, onDetails }: {
   vehicle: ShowroomVehicle; eligibility: ShowroomEligibility; priority: boolean; onDetails: () => void;
 }) {
   const titleId = useId();
-  return <article className={`cw-vehicle-card cw-vehicle-${eligibility.status}`} aria-labelledby={titleId}>
+  return <article className={`cw-vehicle-card cw-vehicle-card-clickable cw-vehicle-${eligibility.status}`} aria-labelledby={titleId}
+    onClick={event => { if (cardClickOpensDetails(event.target, window.getSelection()?.toString())) onDetails(); }}>
     <div className="cw-vehicle-media">
       <VehiclePhoto vehicle={vehicle} sizes={CARD_SIZES} priority={priority} />
       <Badges vehicle={vehicle} />
@@ -159,7 +170,8 @@ function VehicleCard({ vehicle, eligibility, priority, onDetails }: {
     <div className="cw-vehicle-body">
       <div className="cw-vehicle-heading">
         <div>
-          <h2 id={titleId}><bdi dir="ltr">{vehicle.display_name}</bdi></h2>
+          <h2 id={titleId}><button type="button" className="cw-vehicle-title-button" onClick={onDetails} aria-haspopup="dialog"
+            aria-label={`פרטים ותמונות של ${vehicle.display_name}`}><bdi dir="ltr">{vehicle.display_name}</bdi></button></h2>
           <p className="cw-vehicle-maker">{vehicle.manufacturer_name}</p>
         </div>
         <EligibilityPill eligibility={eligibility} />

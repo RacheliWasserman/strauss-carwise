@@ -15,8 +15,8 @@ type Props = {
   onLoadMore: () => void; onRetry: () => void;
   /** The signed-in account's stored name, when the identity record exists. */
   account?: { firstName: string; fullName: string };
-  /** The page the sidebar is shown on; the catalog link is marked as the current page there. */
-  section?: 'chat' | 'catalog' | 'match';
+  /** The page the sidebar is shown on; its link is marked as the current page there. */
+  section?: 'chat' | 'catalog' | 'match' | 'profile';
 };
 /** Up to two initials from the stored name, for the account avatar. */
 export const initials = (fullName: string) => fullName.split(/[\s-]+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('');
@@ -57,6 +57,14 @@ export function ChatSidebar(props: Props) {
         <BrandLockup tone="light" />
         <button className="cw-icon-button cw-drawer-close" aria-label="סגירת תפריט השיחות" onClick={onClose}><ChatIcon name="close" /></button>
       </div>
+      {/* The one way into "הפרופיל שלי", right above "שיחה חדשה". While a message is still being confirmed or answered,
+          leaving the chat is held back (as switching conversations is), so nothing in progress is lost. */}
+      <Link href="/profile" className={`cw-profile-nav ${props.section === 'profile' ? 'cw-profile-nav-active' : ''}`}
+        aria-current={props.section === 'profile' ? 'page' : undefined} aria-disabled={props.locked || undefined}
+        onClick={event => { if (props.locked) { event.preventDefault(); return; } onClose(); }}>
+        <span className="cw-profile-nav-icon" aria-hidden="true"><ChatIcon name="user" /></span>
+        <span className="cw-profile-nav-text"><strong>הפרופיל שלי</strong><span>שכר, תפקיד ורכב נוכחי</span></span>
+      </Link>
       <button className="cw-new-chat" disabled={props.locked} onClick={() => props.onSelect(null)}><ChatIcon name="plus" /><span>שיחה חדשה</span><span className="cw-new-chat-corner">↗</span></button>
       <div className="cw-history-heading"><span>השיחות שלך</span><ChatIcon name="clock" /></div>
       <nav className="cw-history" aria-label="בחירת שיחה" aria-busy={props.loading}>

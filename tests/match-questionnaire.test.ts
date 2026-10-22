@@ -7,7 +7,7 @@ vi.mock('@/lib/catalog/showroom', () => import('../src/lib/catalog/showroom'));
 vi.mock('@/lib/match/match-engine', () => import('../src/lib/match/match-engine'));
 vi.mock('../src/components/chat/chat-sidebar', () => ({ ChatSidebar: () => null }));
 vi.mock('../src/components/chat/use-employee-chat', () => ({ rememberActiveConversation: vi.fn() }));
-vi.mock('../src/components/catalog/catalog-app', () => ({ useConversationList: vi.fn() }));
+vi.mock('../src/components/chat/use-conversation-list', () => ({ useConversationList: vi.fn() }));
 import { Choice, StepFrame, STEPS, summaryRows, toPreferences } from '../src/components/match/match-app';
 
 afterEach(() => vi.unstubAllGlobals());

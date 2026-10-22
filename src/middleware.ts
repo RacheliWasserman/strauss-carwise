@@ -71,6 +71,13 @@ export async function middleware(request: NextRequest) {
     return redirectWithCookies(request, response, '/login');
   }
 
+  // Every other page checks the role itself on the server (getAuthenticatedProfile) and redirects on its own, so
+  // repeating the same database read here only delayed each navigation. The root page has no server check: it
+  // still needs the role to send each account to its own area.
+  if (pathname !== '/') {
+    return response;
+  }
+
   const { data: profile, error } = await supabase
     .from('user_profiles')
     .select('role')
@@ -85,24 +92,12 @@ export async function middleware(request: NextRequest) {
     );
   }
 
-  if (pathname === '/representative' && profile.role !== 'representative') {
-    return redirectWithCookies(request, response, '/employee');
-  }
-
-  if (
-    pathname === '/' &&
-    profile.role === 'representative' &&
-    process.env.NODE_ENV === 'production'
-  ) {
+  if (profile.role === 'representative') {
     return redirectWithCookies(request, response, '/representative');
   }
 
-  if (pathname === '/' && profile.role === 'employee') {
+  if (profile.role === 'employee') {
     return redirectWithCookies(request, response, '/employee');
-  }
-
-  if (pathname === '/employee' && profile.role === 'representative') {
-    return redirectWithCookies(request, response, '/representative');
   }
 
   return response;

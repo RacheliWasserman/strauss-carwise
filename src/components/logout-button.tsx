@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
 import { CarWiseCarLoader } from './ui/carwise-car-loader';
 
 export function LogoutButton() {
@@ -15,6 +14,8 @@ export function LogoutButton() {
     setError('');
 
     try {
+      // The Supabase browser SDK is loaded only for this click, so it is not part of every page's first load.
+      const { createSupabaseBrowserClient } = await import('@/lib/supabase-browser');
       const { error: signOutError } =
         await createSupabaseBrowserClient().auth.signOut();
 
@@ -38,6 +39,8 @@ export function LogoutButton() {
       <button
         type="button"
         onClick={logout}
+        onPointerEnter={() => { void import('@/lib/supabase-browser').catch(() => undefined); }}
+        onFocus={() => { void import('@/lib/supabase-browser').catch(() => undefined); }}
         disabled={pending}
         className="rounded-lg border border-white/30 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10 disabled:opacity-60"
       >

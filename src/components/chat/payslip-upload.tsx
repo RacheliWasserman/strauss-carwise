@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import {
-  encodePayslipReview, extractionResponseSchema, PAYSLIP_ACCEPT, PAYSLIP_FIELD_ORDER, PAYSLIP_LIMITS, VISION_CONSENT_TEXT, VISION_CONSENT_VERSION
+  encodePayslipReview, extractionResponseSchema, PAYSLIP_ACCEPT, PAYSLIP_FIELD_ORDER, PAYSLIP_LIMITS, VISION_CONSENT_TEXT, VISION_CONSENT_VERSION,
+  type PayslipReview
 } from '@/lib/payslip/payslip-contract';
 import { buildPayslipReview, initialReviewRows, reviewRowError, type ExtractedResult as Extracted, type ReviewRows } from '@/lib/payslip/payslip-review-form';
 import { ChatIcon } from './chat-icon';
@@ -23,9 +24,17 @@ const REASON: Record<'image' | 'scanned_pdf' | 'no_fields', string> = {
 };
 const METHOD: Record<Extracted['method'], string> = { pdf_text: 'נקרא מקובץ PDF דיגיטלי, אצלנו בלבד', docx: 'נקרא מקובץ Word, אצלנו בלבד', vision: 'נקרא בקריאה חזותית (Google Gemini)' };
 
-export function PayslipUpload({ conversationId, busy, onSubmit, onClose }: {
-  conversationId: string; busy: boolean; onSubmit: (body: string) => void; onClose: () => void;
+/**
+ * Payslip upload and review. In the chat the reviewed values become a message for the approval summary; on the
+ * profile page they fill the profile form. In both, nothing is saved before the employee's own explicit approval.
+ */
+export function PayslipUpload({ endpoint, destination = 'chat', busy = false, onSubmit, onClose }: {
+  /** The upload route: the conversation's own, or the profile's. */
+  endpoint: string; destination?: 'chat' | 'profile'; busy?: boolean;
+  /** The reviewed values, and the same values encoded as the chat message. */
+  onSubmit: (review: PayslipReview, encoded: string) => void; onClose: () => void;
 }) {
+  const profile = destination === 'profile';
   const dialog = useRef<HTMLDialogElement>(null);
   const request = useRef<AbortController | null>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -43,6 +52,8 @@ export function PayslipUpload({ conversationId, busy, onSubmit, onClose }: {
   const close = () => { request.current?.abort(); setFile(null); onClose(); };
 
   const toReview = (result: Extracted | null) => {
+    // On the profile page the page itself is the manual form.
+    if (profile && !result) { close(); return; }
     setRows(initialReviewRows(result));
     setFormError(null);
     setStage({ kind: 'review', result });
@@ -58,7 +69,7 @@ export function PayslipUpload({ conversationId, busy, onSubmit, onClose }: {
       const form = new FormData();
       form.append('file', chosen);
       if (withConsent) form.append('consent', VISION_CONSENT_VERSION);
-      const response = await fetch(`/api/conversations/${conversationId}/payslip`, { method: 'POST', body: form, credentials: 'same-origin', cache: 'no-store', signal: controller.signal });
+      const response = await fetch(endpoint, { method: 'POST', body: form, credentials: 'same-origin', cache: 'no-store', signal: controller.signal });
       const data: unknown = await response.json().catch(() => null);
       // A newer upload replaced this one: its answer must not overwrite the newer review.
       if (request.current !== controller) return;
@@ -93,7 +104,7 @@ export function PayslipUpload({ conversationId, busy, onSubmit, onClose }: {
     if (PAYSLIP_FIELD_ORDER.some(field => reviewRowError(field, rows[field]))) { setFormError('יש לתקן את השדות המסומנים.'); return; }
     const review = buildPayslipReview(result, rows);
     if (!review) { setFormError('יש למלא לפחות ערך אחד או לסמן "לא ידוע".'); return; }
-    onSubmit(encodePayslipReview(review));
+    onSubmit(review, encodePayslipReview(review));
     close();
   };
 
@@ -117,7 +128,7 @@ export function PayslipUpload({ conversationId, busy, onSubmit, onClose }: {
         <li><ChatIcon name="spark" />תמונות ותלושים סרוקים נשלחים לקריאה חזותית ב־Google Gemini, רק אחרי אישור מפורש.</li>
         <li><ChatIcon name="document" />נלקחים רק 7 נתוני שכר. שם, ת״ז ופרטי בנק לא נאספים.</li>
       </ul>
-      <button type="button" className="cw-payslip-link" onClick={() => toReview(null)}>הזנה ידנית במקום העלאה</button>
+      <button type="button" className="cw-payslip-link" onClick={() => toReview(null)}>{profile ? 'חזרה למילוי ידני' : 'הזנה ידנית במקום העלאה'}</button>
     </div>}
 
     {stage.kind === 'reading' && <div className="cw-payslip-body cw-payslip-center">
@@ -164,15 +175,16 @@ export function PayslipUpload({ conversationId, busy, onSubmit, onClose }: {
     </div>}
 
     {stage.kind === 'review' && <form className="cw-payslip-body" onSubmit={event => { event.preventDefault(); submit(); }} noValidate>
-      {stage.result ? <p className="cw-payslip-lead">{METHOD[stage.result.method]}. כדאי לבדוק כל ערך, לתקן אם צריך, או לסמן "לא ידוע". שדה ריק יישאל בהמשך השיחה.</p>
+      {stage.result ? <p className="cw-payslip-lead">{METHOD[stage.result.method]}. כדאי לבדוק כל ערך, לתקן אם צריך, או לסמן "לא ידוע". {profile ? 'שדה ריק או "לא ידוע" לא ישנה את הערך שבטופס.' : 'שדה ריק יישאל בהמשך השיחה.'}</p>
         : <p className="cw-payslip-lead">אפשר להזין את הערכים כפי שהם מופיעים בתלוש. שדה ריק יישאל בהמשך השיחה.</p>}
       {stage.result?.warnings.map(warning => <p key={warning} className="cw-payslip-note">{warning}</p>)}
       <ul className="cw-payslip-rows">{PAYSLIP_FIELD_ORDER.map(field => <PayslipReviewRow key={field} field={field} result={stage.result} row={rows[field]}
         onChange={patch => setRows(current => ({ ...current, [field]: { ...current[field], ...patch } }))} />)}</ul>
       {formError && <p className="cw-payslip-error" role="alert">{formError}</p>}
-      <p className="cw-payslip-note">הערכים ייכנסו לסיכום לאישור בצ׳אט. שום דבר לא יישמר בפרופיל ולא ישמש לחישוב לפני אישור הסיכום.</p>
+      <p className="cw-payslip-note">{profile ? 'הערכים יועברו לטופס הפרופיל לבדיקה. שום דבר לא יישמר ולא ישמש לחישוב עד שתלחצו על "שמירת הפרופיל".'
+        : 'הערכים ייכנסו לסיכום לאישור בצ׳אט. שום דבר לא יישמר בפרופיל ולא ישמש לחישוב לפני אישור הסיכום.'}</p>
       <div className="cw-payslip-actions">
-        <button type="submit" className="cw-payslip-primary">העברה לסיכום לאישור</button>
+        <button type="submit" className="cw-payslip-primary">{profile ? 'העברה לטופס הפרופיל' : 'העברה לסיכום לאישור'}</button>
         <button type="button" onClick={close}>ביטול</button>
       </div>
     </form>}

@@ -4,8 +4,6 @@ import Link from 'next/link';
 import { useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { getHebrewAuthError } from '@/lib/auth-errors';
-import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
-import { firstIssue, registrationSchema } from '@/lib/identity/employee-identity';
 import { AuthAside } from './auth-visuals';
 import { BrandLockup } from './brand/brand-lockup';
 import { CarWiseCarLoader } from './ui/carwise-car-loader';
@@ -51,7 +49,9 @@ export function AuthForm({ mode, initialError = '' }: AuthFormProps) {
   const isRegister = mode === 'register';
 
   async function register() {
-    // The same rules are enforced again on the server; this only gives immediate feedback.
+    // The same rules are enforced again on the server; this only gives immediate feedback. Loaded on submit, so the
+    // validation library is not part of the page's first load.
+    const { firstIssue, registrationSchema } = await import('@/lib/identity/employee-identity');
     const parsed = registrationSchema.safeParse({ email, password, firstName, lastName, nationalId });
     if (!parsed.success) { setError(firstIssue(parsed.error)); return; }
     const response = await fetch('/api/auth/register', {
@@ -75,6 +75,8 @@ export function AuthForm({ mode, initialError = '' }: AuthFormProps) {
       if (isRegister) {
         await register();
       } else {
+        // Loaded on submit: the Supabase browser SDK is not needed to show the page.
+        const { createSupabaseBrowserClient } = await import('@/lib/supabase-browser');
         const supabase = createSupabaseBrowserClient();
         const { error: signInError } = await supabase.auth.signInWithPassword({
           email: email.trim(),
@@ -97,7 +99,7 @@ export function AuthForm({ mode, initialError = '' }: AuthFormProps) {
 
   return (
     <main className="auth-shell" dir="rtl">
-      <section className="auth-panel">
+      <section className={isRegister ? 'auth-panel auth-panel-compact' : 'auth-panel'}>
         <BrandLockup tone="dark" size="sm" className="auth-panel-brand" />
         <p className="auth-eyebrow">גישה מאובטחת לעובדי שטראוס</p>
         <h1>{isRegister ? 'פתיחת חשבון' : 'ברוכים הבאים'}</h1>
@@ -107,7 +109,9 @@ export function AuthForm({ mode, initialError = '' }: AuthFormProps) {
             : 'מתחברים כדי להמשיך ליועץ הרכב וההטבות.'}
         </p>
 
-        <form onSubmit={submit} className="auth-form" noValidate={isRegister} aria-busy={pending}>
+        {/* The first focus in the form starts loading what submitting needs, so the click itself does not wait. */}
+        <form onSubmit={submit} className="auth-form" noValidate={isRegister} aria-busy={pending}
+          onFocusCapture={() => { void (isRegister ? import('@/lib/identity/employee-identity') : import('@/lib/supabase-browser')).catch(() => undefined); }}>
           {isRegister && <>
             <div className="auth-row">
               <label>
@@ -125,7 +129,7 @@ export function AuthForm({ mode, initialError = '' }: AuthFormProps) {
               <span>מספר תעודת זהות</span>
               <input type="text" name="national-id" inputMode="numeric" autoComplete="off" dir="ltr" maxLength={12}
                 value={nationalId} onChange={event => setNationalId(event.target.value)} aria-describedby="auth-id-help" required />
-              <small id="auth-id-help" className="auth-help">9 ספרות, כולל ספרת ביקורת. המספר נשמר בחשבון בלבד, לא מוצג לנציגים ולא נשלח למערכות בינה מלאכותית.</small>
+              <small id="auth-id-help" className="auth-help">9 ספרות כולל ספרת ביקורת. נשמר בחשבון בלבד: לא מוצג לנציגים ולא נשלח למערכות בינה מלאכותית.</small>
             </label>
           </>}
           <label>

@@ -33,6 +33,8 @@ const paths = {
   users: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2m7-10a4 4 0 1 0 0-8 4 4 0 0 0 0 8m13 10v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8',
   info: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20m0-6v-4m0-4h.01',
   forward: 'M19 12H5m7 7-7-7 7-7',
+  // "Back" on a right-to-left page points right.
+  back: 'M5 12h14m-7-7 7 7-7 7',
   calculator: 'M5 2h14v20H5zm3 4h8M8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h4',
   alert: 'M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0',
   reset: 'M3 12a9 9 0 1 0 3-6.7L3 8m0-5v5h5'

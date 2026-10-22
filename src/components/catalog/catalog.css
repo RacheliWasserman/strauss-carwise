@@ -66,6 +66,15 @@
 .cw-vehicle-card { flex: 1; display: flex; flex-direction: column; border-radius: 24px; background: var(--cw-paper); border: 1px solid #e4ecea;
   box-shadow: var(--cw-shadow); overflow: hidden; transition: transform .25s ease, box-shadow .25s ease; }
 .cw-vehicle-card:hover { transform: translateY(-4px); box-shadow: var(--cw-shadow-lift); }
+/* The whole catalog card opens the vehicle's details (catalog-browser.tsx); its own buttons and links keep their actions. */
+.cw-vehicle-card-clickable { cursor: pointer; }
+.cw-vehicle-card-clickable:hover { border-color: #b9dcd5; }
+.cw-vehicle-card-clickable:focus-within:has(.cw-vehicle-title-button:focus-visible) { border-color: #9fd0cd; box-shadow: var(--cw-shadow-lift), 0 0 0 3px #137c7726; }
+.cw-vehicle-card-clickable .cw-vehicle-media .cw-photo-image { transition: transform .35s ease; }
+.cw-vehicle-card-clickable:hover .cw-vehicle-media .cw-photo-image { transform: scale(1.025); }
+.cw-vehicle-title-button { all: unset; cursor: pointer; border-radius: 6px; }
+.cw-vehicle-title-button:hover { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 4px; text-decoration-color: #9fd0cd; }
+.cw-vehicle-title-button:focus-visible { outline: 3px solid #d18455; outline-offset: 3px; }
 .cw-vehicle-media { position: relative; aspect-ratio: 16 / 10; background: #f3eee6; overflow: hidden; }
 .cw-photo-image { object-fit: contain; object-position: center; padding: 2%; box-sizing: border-box; }
 .cw-vehicle-card:hover .cw-photo-image { transform: none; }
@@ -76,7 +85,7 @@
 .cw-badge-family { background: var(--cw-deep); color: #e1f4e9; }
 .cw-badge-zap { background: #1f8a6e; color: #fff; }
 .cw-vehicle-body { flex: 1; display: flex; flex-direction: column; gap: 16px; padding: 20px 22px 22px; }
-.cw-vehicle-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.cw-vehicle-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 8px 12px; }
 .cw-vehicle-heading h2 { margin: 0; font-size: 22px; font-weight: 750; letter-spacing: -.2px; color: var(--cw-deep); }
 .cw-vehicle-maker { margin: 3px 0 0; color: var(--cw-muted); font-size: 14px; }
 .cw-eligibility { display: inline-flex; align-items: center; gap: 6px; margin: 2px 0 0; padding: 6px 10px; border-radius: 10px; font-size: 12.5px; font-weight: 700; white-space: nowrap; }
@@ -196,6 +205,6 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .cw-vehicle-card, .cw-photo-image, .cw-showroom-scroll, .cw-catalog-nav { transition: none !important; scroll-behavior: auto !important; }
-  .cw-vehicle-card:hover, .cw-vehicle-card:hover .cw-photo-image { transform: none; }
+  .cw-vehicle-card:hover, .cw-vehicle-card:hover .cw-photo-image, .cw-vehicle-card-clickable:hover .cw-vehicle-media .cw-photo-image { transform: none; }
   .cw-skeleton, .cw-vehicle-dialog[open] { animation: none !important; }
 }

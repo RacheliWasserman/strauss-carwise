@@ -1,5 +1,6 @@
 'use client';
 
+import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChatSidebar } from './chat-sidebar';
 import { ChatWelcome } from './chat-welcome';
@@ -8,10 +9,12 @@ import { ChatComposer } from './chat-composer';
 import { ChatIcon } from './chat-icon';
 import { CarWiseCarLoader } from '../ui/carwise-car-loader';
 import { useEmployeeChat } from './use-employee-chat';
-import { PayslipUpload } from './payslip-upload';
 import { compareCardsMessage, selectCardMessage } from './catalog-cards';
 import { greeting } from '../../lib/identity/greeting';
 import './employee-chat.css';
+
+// The payslip dialog (file reading, review form) is code the chat needs only when the employee opens it.
+const PayslipUpload = dynamic(() => import('./payslip-upload').then(module => module.PayslipUpload), { ssr: false });
 
 export type EmployeeAccount = { firstName: string; fullName: string };
 /** A catalog vehicle the employee chose on the catalog page (validated on the server against the active catalog). */
@@ -90,8 +93,8 @@ export function EmployeeChat({ userId, account, vehicleIntent, comparisonIntent 
           disabled={!chat.ready || (!locked && (chat.threadLoading || Boolean(chat.threadError && !chat.messages.length)))}
           error={chat.sendError} needsLogin={chat.needsLogin} textareaRef={input}
           onPayslip={() => setPayslipOpen(true)} payslipDisabled={!chat.activeId || locked || chat.sending || chat.assistant.thinking || chat.threadLoading} />
-        {payslipOpen && chat.activeId && <PayslipUpload conversationId={chat.activeId} busy={locked || chat.sending || chat.assistant.thinking}
-          onSubmit={chat.sendText} onClose={() => setPayslipOpen(false)} />}
+        {payslipOpen && chat.activeId && <PayslipUpload endpoint={`/api/conversations/${chat.activeId}/payslip`} busy={locked || chat.sending || chat.assistant.thinking}
+          onSubmit={(_review, encoded) => chat.sendText(encoded)} onClose={() => setPayslipOpen(false)} />}
       </div>
       {locked && !chat.sending && <p className="cw-recovery-note" role="status">כדי למנוע כפילות, יש להשלים את הניסיון החוזר לפני מעבר לשיחה אחרת.</p>}
     </div>

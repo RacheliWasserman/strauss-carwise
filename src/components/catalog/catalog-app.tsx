@@ -2,34 +2,16 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useState } from 'react';
-import { chatApi, ChatApiError, mergeConversations, type ChatConversation, type ChatCursor } from '@/lib/chat-client';
+import { useCallback, useState } from 'react';
 import type { Showroom } from '@/lib/catalog/showroom-service';
 import { ChatSidebar } from '../chat/chat-sidebar';
 import { ChatIcon } from '../chat/chat-icon';
 import { rememberActiveConversation } from '../chat/use-employee-chat';
+import { useConversationList } from '../chat/use-conversation-list';
 import type { EmployeeAccount } from '../chat/employee-chat';
 import { CatalogBrowser } from './catalog-browser';
 import '../chat/employee-chat.css';
 import './catalog.css';
-
-/** The employee's conversation list for the sidebar (read only here; choosing one opens it in the chat). */
-export function useConversationList() {
-  const [conversations, setConversations] = useState<ChatConversation[]>([]);
-  const [cursor, setCursor] = useState<ChatCursor | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const load = useCallback(async (from: ChatCursor | null = null) => {
-    setLoading(true); setError(null);
-    try {
-      const page = await chatApi.list(from);
-      setConversations(current => mergeConversations(current, page.conversations)); setCursor(page.nextCursor);
-    } catch (problem) { setError(problem instanceof ChatApiError ? problem.message : 'לא הצלחתי לטעון את השיחות.'); }
-    finally { setLoading(false); }
-  }, []);
-  useEffect(() => { void load(); }, [load]);
-  return { conversations, cursor, loading, error, load };
-}
 
 export function CatalogApp({ userId, account, showroom, aliases }: {
   userId: string; account?: EmployeeAccount; showroom: Showroom; aliases: Record<string, string[]>;
@@ -55,7 +37,7 @@ export function CatalogApp({ userId, account, showroom, aliases }: {
           <span className="cw-topbar-symbol"><ChatIcon name="car" /></span>
           <div><strong>קטלוג רכבי החברה</strong><span>{account ? `${account.firstName}, כל הרכבים במקום אחד` : 'כל הרכבים במקום אחד'}</span></div>
         </div>
-        <Link href="/employee" className="cw-showroom-back"><ChatIcon name="chat" /><span>חזרה לשיחה</span></Link>
+        <Link href="/employee" className="cw-showroom-back" aria-label="חזרה לדף הבית"><ChatIcon name="back" /><span>חזרה לדף הבית</span></Link>
       </header>
       <div id="cw-catalog-main" className="cw-showroom-scroll" tabIndex={-1}>
         <CatalogBrowser showroom={showroom} aliases={aliases} onRetry={() => router.refresh()} />

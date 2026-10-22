@@ -16,10 +16,11 @@ export type Showroom =
  * occupation's official group and its eligible-children count. A draft or chat-only value never decides eligibility.
  */
 export async function loadShowroom(userId: string): Promise<Showroom> {
-  let vehicles: ShowroomVehicle[];
-  try { vehicles = await activeCatalog(searchAdvisorVehicles); }
-  catch { return { status: 'unavailable' }; }
-  const [basis, rules] = await Promise.all([eligibilityBasis(userId), getCalculationRules().catch(() => null)]);
+  // The catalog, the employee's eligibility basis and the rules are independent reads: all start at once.
+  const [catalog, basis, rules] = await Promise.all([activeCatalog(searchAdvisorVehicles).then(rows => ({ rows }), () => null),
+    eligibilityBasis(userId), getCalculationRules().catch(() => null)]);
+  if (!catalog) return { status: 'unavailable' };
+  const vehicles: ShowroomVehicle[] = catalog.rows;
   const eligibility = Object.fromEntries(vehicles.map(vehicle => [vehicle.id, vehicleEligibility(vehicle, basis, rules)]));
   return { status: 'ready', vehicles, eligibility, basis };
 }
@@ -53,9 +54,12 @@ export async function resolveComparisonIntent(value: string | string[] | undefin
 
 async function eligibilityBasis(userId: string): Promise<EligibilityBasis> {
   try {
+    // Both reads start at once; the occupation list is needed only when a confirmed profile exists (the usual case).
+    const occupationsRead = listAdvisorOccupations();
+    occupationsRead.catch(() => undefined);
     const profile = await getLatestConfirmedEmployeeData(userId);
-    if (!profile) return { kind: 'unknown', reason: 'עדיין אין פרופיל מאושר. אחרי שתאשרו את הפרטים בשיחה עם CarWise, הזכאות תוצג כאן.' };
-    const occupation = (await listAdvisorOccupations()).find(item => item.title === profile.occupation_title);
+    if (!profile) return { kind: 'unknown', reason: 'עדיין אין פרופיל מאושר. אפשר לעדכן אותו ב"הפרופיל שלי" או לאשר את הפרטים בשיחה עם CarWise, והזכאות תוצג כאן.' };
+    const occupation = (await occupationsRead).find(item => item.title === profile.occupation_title);
     if (!occupation) return { kind: 'unknown', reason: 'התפקיד בפרופיל המאושר לא נמצא ברשימת התפקידים הרשמית, ולכן אי אפשר לקבוע זכאות.' };
     return { kind: 'confirmed', occupation: occupation.title, group: occupation.group_code, children: profile.eligible_children_count };
   } catch {
