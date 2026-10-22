@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useId, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { z } from 'zod';
 import {
   encodeRepAnswer, fieldFromTopic, formatAnswerValue, REP_ANSWER_KIND, REQUESTABLE_FIELDS, requestableFieldSchema,
@@ -29,6 +29,22 @@ const time = (value: string) => new Intl.DateTimeFormat('he-IL', { dateStyle: 's
 
 async function readError(response: Response, fallback: string) {
   try { const data = await response.json(); return typeof data.error === 'string' ? data.error : fallback; } catch { return fallback; }
+}
+
+/** Publish one coherent snapshot; an answer-list failure must not silently leave old answers on screen. */
+export async function loadRepresentativeData(signal: AbortSignal, fetcher: typeof fetch = fetch) {
+  const [queue, sent] = await Promise.all([
+    fetcher('/api/representative-requests', { cache: 'no-store', credentials: 'same-origin', signal }),
+    fetcher('/api/representative-requests/answers', { cache: 'no-store', credentials: 'same-origin', signal })
+  ]);
+  if (!queue.ok) throw new Error(await readError(queue, 'לא הצלחנו לטעון את הפניות.'));
+  if (!sent.ok) throw new Error(await readError(sent, 'לא הצלחנו לטעון את התשובות שנשלחו.'));
+  const [queueBody, answerBody] = await Promise.all([queue.json(), sent.json()]);
+  const requests = z.object({ requests: z.array(requestSchema) }).safeParse(queueBody);
+  const answers = z.object({ answers: z.array(answerSchema) }).safeParse(answerBody);
+  if (!requests.success || !answers.success) throw new Error('התקבלו נתונים לא תקינים. אפשר לרענן ולנסות שוב.');
+  return { requests: requests.data.requests.sort((a, b) => a.requested_at.localeCompare(b.requested_at)),
+    answers: new Map(answers.data.answers.map(answer => [answer.requestId, answer])) };
 }
 
 function Pill({ tone, children }: { tone: 'waiting' | 'mine' | 'done'; children: React.ReactNode }) {
@@ -192,6 +208,7 @@ export function RequestCard({ accent, header, action, toggleLabel, children, rev
 }
 
 export function RepresentativeConsole({ userId }: { userId: string }) {
+  const refresh = useRef<AbortController | null>(null);
   const [requests, setRequests] = useState<Request[] | null>(null);
   const [answers, setAnswers] = useState<Map<string, Answer>>(new Map());
   const [error, setError] = useState('');
@@ -204,24 +221,22 @@ export function RepresentativeConsole({ userId }: { userId: string }) {
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 30_000); return () => window.clearInterval(timer); }, []);
 
   const load = useCallback(async () => {
+    refresh.current?.abort();
+    const controller = new AbortController();
+    refresh.current = controller;
     setLoading(true); setError('');
     try {
-      const [queue, sent] = await Promise.all([
-        fetch('/api/representative-requests', { cache: 'no-store' }),
-        fetch('/api/representative-requests/answers', { cache: 'no-store' })
-      ]);
-      if (!queue.ok) throw new Error(await readError(queue, 'לא הצלחנו לטעון את הפניות.'));
-      const data = z.object({ requests: z.array(requestSchema.passthrough()) }).parse(await queue.json());
-      setRequests(data.requests.map(request => requestSchema.parse(request)).sort((a, b) => a.requested_at.localeCompare(b.requested_at)));
-      if (sent.ok) setAnswers(new Map(z.object({ answers: z.array(answerSchema) }).parse(await sent.json()).answers.map(answer => [answer.requestId, answer])));
-    } catch (failure) { setError(failure instanceof Error ? failure.message : 'לא הצלחנו לטעון את הפניות.'); }
-    finally { setLoading(false); }
+      const data = await loadRepresentativeData(controller.signal);
+      if (!controller.signal.aborted && refresh.current === controller) { setRequests(data.requests); setAnswers(data.answers); }
+    } catch (failure) {
+      if (!controller.signal.aborted && refresh.current === controller) setError(failure instanceof Error ? failure.message : 'לא הצלחנו לטעון את הפניות.');
+    } finally { if (refresh.current === controller && !controller.signal.aborted) setLoading(false); }
   }, []);
 
   useEffect(() => {
     void load();
     const timer = window.setInterval(() => { if (!document.hidden) void load(); }, 20000);
-    return () => window.clearInterval(timer);
+    return () => { window.clearInterval(timer); refresh.current?.abort(); };
   }, [load]);
 
   const claim = async (request: Request) => {
@@ -229,6 +244,8 @@ export function RepresentativeConsole({ userId }: { userId: string }) {
     try {
       const response = await fetch(`/api/representative-requests/${request.id}/claim`, { method: 'POST', cache: 'no-store' });
       setNotice(response.ok ? 'הפנייה הועברה לטיפולך.' : await readError(response, 'הפנייה כבר נלקחה או אינה זמינה.'));
+    } catch {
+      setNotice('לא הצלחנו לקחת את הפנייה לטיפול בגלל בעיית חיבור. יש לרענן ולבדוק את הסטטוס לפני ניסיון נוסף.');
     } finally { setClaiming(null); void load(); }
   };
 

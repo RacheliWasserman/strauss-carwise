@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/components/logout-button', () => ({ LogoutButton: () => null }));
 import { durationLabel, isOverdue, matchesQuery, waitingText, type QueueItem } from '../src/lib/representative-queue-view';
-import { NationalIdReveal, RequestHeader, requestSchema } from '../src/components/representative/representative-console';
+import { loadRepresentativeData, NationalIdReveal, RequestHeader, requestSchema } from '../src/components/representative/representative-console';
 import { ChatSidebar, initials } from '../src/components/chat/chat-sidebar';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -11,6 +11,30 @@ const NOW = Date.parse('2026-10-21T13:00:00.000Z');
 const minutesAgo = (minutes: number) => new Date(NOW - minutes * 60_000).toISOString();
 const item = (extra: Partial<QueueItem> = {}): QueueItem => ({ status: 'open', requested_at: minutesAgo(12), answered_at: null,
   topic: 'שדה חסר: שכר בסיס חודשי ברוטו [base_salary]', assigned_representative_id: null, employee_name: 'רחלי כהן', occupation: 'מנהל/ת אזור מכירות', ...extra });
+
+describe('representative refresh: coherent queue and answer snapshots',()=>{
+  it('does not silently accept an answer endpoint failure',async()=>{
+    const fetcher=vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({requests:[]})))
+      .mockResolvedValueOnce(new Response(JSON.stringify({error:'לא ניתן לטעון תשובות'}),{status:500}));
+    await expect(loadRepresentativeData(new AbortController().signal,fetcher)).rejects.toThrow('לא ניתן לטעון תשובות');
+  });
+  it('loads empty snapshots and passes cancellation and same-origin credentials to both requests',async()=>{
+    const fetcher=vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({requests:[]})))
+      .mockResolvedValueOnce(new Response(JSON.stringify({answers:[]})));
+    const signal=new AbortController().signal;
+    expect(await loadRepresentativeData(signal,fetcher)).toEqual({requests:[],answers:new Map()});
+    for(const [,options] of fetcher.mock.calls) expect(options).toMatchObject({signal,credentials:'same-origin',cache:'no-store'});
+  });
+  it('rejects malformed responses without exposing payload values in the validation error',async()=>{
+    const fetcher=vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({requests:[{id:'private-value'}]})))
+      .mockResolvedValueOnce(new Response(JSON.stringify({answers:[]})));
+    await expect(loadRepresentativeData(new AbortController().signal,fetcher)).rejects.toThrow('התקבלו נתונים לא תקינים');
+  });
+  it('propagates a network failure rather than presenting an empty successful queue',async()=>{
+    const fetcher=vi.fn().mockRejectedValue(new TypeError('Network unavailable'));
+    await expect(loadRepresentativeData(new AbortController().signal,fetcher)).rejects.toThrow('Network unavailable');
+  });
+});
 
 describe('waiting time and the 30-minute threshold', () => {
   it('labels elapsed time in natural Hebrew', () => {

@@ -1494,6 +1494,34 @@ describe('durable financial goal: survives corrections, representative consultat
     expect(person.financial.createVersion).toHaveBeenCalledTimes(1);expect(person.runs).toHaveLength(2);
   });
 
+  it('representative round trip survives social interludes and reload, rejects duplicates and another employee answer',async()=>{
+    const person=employee();approvedVersion(person,1,'E-004');const chat=person.conversation();
+    await chat.turn('אני רוצה EV3',{action:'catalog',filters:{}});
+    await chat.turn('כמה EV3 ישפיע על הנטו שלי?');
+    await chat.turn('אבל חלק מהנתונים לא נכונים');
+    const offer=await chat.turn('אני לא יודעת כמה אני משתתפת ברכב',junkSearch('ברכב',[
+      {type:'unknown_fact',field:'current_participation',evidence:'אני לא יודעת כמה אני משתתפת ברכב'}]));
+    const button=offer.actions!.find(action=>action.body.includes('#R'))!.body;
+    await chat.turn(button);await chat.turn(button);expect(person.requests).toHaveLength(1);
+    const request=person.requests[0];person.claim(request.id,REP);
+    await chat.turn('תודה',{action:'help',intent:'conversation',conversationAct:'acknowledge',filters:{}});
+    chat.restore(JSON.parse(JSON.stringify(chat.state)));
+    expect(chat.state.representative?.requestId).toBe(request.id);expect(chat.state.activeGoal).toEqual({kind:'vehicles',vehicleIds:['CAR-11']});
+    // A request row belonging to someone else cannot supply even a correctly shaped answer.
+    const answer=chat.representativeSays(JSON.stringify({kind:'carwise.rep-answer.v1',requestId:request.id,field:'current_participation',value:300,answeredAt:new Date().toISOString()}),REP);
+    const use=`שימוש בתשובת הנציג #Q${answer.id.slice(0,8).toUpperCase()}`;
+    const owner=request.owner_user_id;request.owner_user_id=randomUUID();
+    expect((await chat.turn(use)).text).toContain('לא הצלחתי לאמת');expect(person.financial.createVersion).not.toHaveBeenCalled();
+    request.owner_user_id=owner;
+    const summary=await chat.turn(use);expect(summary.approval?.rows.find(row=>row.label==='השתתפות חודשית ברכב היום')?.status).toBe('representative');
+    expect(person.financial.createVersion).not.toHaveBeenCalled();
+    await chat.turn('הבנתי',{action:'help',intent:'conversation',conversationAct:'acknowledge',filters:{}});
+    const result=await chat.turn(approve(summary));
+    expect(result.calculation?.scenarios.map(row=>row.vehicleId)).toEqual(['CAR-11']);
+    expect(person.financial.createVersion).toHaveBeenCalledTimes(1);
+    await chat.turn(use);expect(person.financial.createVersion).toHaveBeenCalledTimes(1);
+  });
+
   it('LIVE B: the waiver goal survives occupation change, a pasted multi-field correction, an unknown training-fund value and the representative',async()=>{
     const person=employee();for (const version of [1,2,3,4,5,6]) approvedVersion(person,version,'E-004');
     const chat=person.conversation();

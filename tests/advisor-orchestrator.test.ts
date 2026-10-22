@@ -27,6 +27,49 @@ function fixture() {
   const identify=()=>plan.mockResolvedValue(advisorPlanSchema.parse({action:'catalog',goal:'recommendation',filters:{},operations:[report('מפתחת תוכנה')]}));
   return {user,conversation,message,occupations,plan,search,rules,run,report,identify};
 }
+it.each([
+  ['תודה','acknowledge'],['מעולה','acknowledge'],['סבבה','acknowledge'],['הבנתי','acknowledge'],
+  ['להתראות','farewell'],['לא משנה','pause'],['למה?','clarify'],['תסביר לי שוב','explain'],['מה עדיף לי?','advice']
+] as const)('contextual side turn "%s" does not restart discovery, clear pending facts, or search the catalog',async(body,act)=>{
+  const f=fixture();f.identify();
+  const first=await f.run([f.message('אני מפתחת תוכנה ומחפשת רכב חשמלי')]);
+  const previous=advisorStateSchema.parse({...first.state,goal:'net',pendingQuestion:'financial',pendingField:'base_salary',
+    selectedVehicleIds:['E-B'],activeGoal:{kind:'vehicles',vehicleIds:['E-B']}});
+  f.plan.mockResolvedValue(advisorPlanSchema.parse({action:'help',intent:'conversation',conversationAct:act,filters:{}}));
+  f.search.mockClear();
+  const result=await f.run([f.message(body)],previous);
+  const reply=decodeCatalogMessage(result.body)!;
+  expect(reply.purpose).toBe('conversation');expect(reply.cards).toEqual([]);
+  expect(reply.text).not.toContain('אפשר לקבל כאן עזרה');expect(f.search).not.toHaveBeenCalled();
+  expect(result.state.preferences).toEqual(previous.preferences);
+  expect(result.state.activeGoal).toEqual(previous.activeGoal);
+  expect(result.state.pendingField).toBe('base_salary');expect(result.state.pendingQuestion).toBe('financial');
+  expect(result.state.occupation).toEqual(previous.occupation);expect(result.state.pendingFacts).toEqual(previous.pendingFacts);
+});
+
+it('a side conversation ignores proposed business mutations and preserves state after JSON reload',async()=>{
+  const f=fixture();f.identify();const first=await f.run([f.message('אני מפתחת תוכנה ומחפשת רכב חשמלי')]);
+  f.plan.mockResolvedValue(advisorPlanSchema.parse({action:'catalog',intent:'conversation',conversationAct:'acknowledge',
+    filters:{driveType:'בנזין'},operations:[{type:'new_search',evidence:'תודה'}]}));
+  const result=await f.run([f.message('תודה')],advisorStateSchema.parse(JSON.parse(JSON.stringify(first.state))));
+  expect(result.state.preferences).toEqual(first.state.preferences);expect(decodeCatalogMessage(result.body)?.cards).toEqual([]);
+});
+
+it('a general conversation without a fine-grained act no longer falls through to the catalog welcome',async()=>{
+  const f=fixture();f.plan.mockResolvedValue(advisorPlanSchema.parse({action:'help',intent:'conversation',filters:{}}));
+  const result=await f.run([f.message('רגע, אפשר להסביר?')]);
+  expect(decodeCatalogMessage(result.body)?.text).not.toContain('אפשר לקבל כאן עזרה');
+  expect(f.search).not.toHaveBeenCalled();
+});
+it('a model-understood request for another vehicle resumes comparison without forgetting the selection or powertrain',async()=>{
+  const f=fixture();f.identify();const first=await f.run([f.message('אני מפתחת תוכנה ומחפשת רכב חשמלי')]);
+  const previous=advisorStateSchema.parse({...first.state,selectedVehicleIds:['E-A'],activeGoal:{kind:'vehicles',vehicleIds:['E-A']}});
+  f.plan.mockResolvedValue(advisorPlanSchema.parse({action:'help',intent:'resume',conversationAct:'alternatives',filters:{}}));
+  const result=await f.run([f.message('ומה לגבי רכב אחר?')],previous);
+  expect(result.state.selectedVehicleIds).toEqual(['E-A']);expect(result.state.preferences.driveType).toBe('חשמלי');
+  expect(result.state.pendingQuestion).toBe('comparison');
+  expect(decodeCatalogMessage(result.body)?.calculation).toBeUndefined();
+});
 it('matches the feminine occupation to a real table candidate, derives group B and returns only allowed electric cards',async()=>{
   const f=fixture();f.identify();
   const result=await f.run([f.message('אני מפתחת תוכנה ומחפשת רכב חשמלי')]);

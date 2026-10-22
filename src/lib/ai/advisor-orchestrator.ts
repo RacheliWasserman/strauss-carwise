@@ -23,6 +23,7 @@ import { applyRepresentativeValue, CURRENT_VEHICLE_TOPIC, disputedFieldsIn, GENE
 import { decodePayslipReview, PAYSLIP_FIELD_ORDER } from '../payslip/payslip-contract';
 import { applyPayslipReview, type AppliedPayslip } from '../payslip/payslip-handoff';
 import {profileRecallTopic,recallProfile,recallTopicSchema,type RecallTopic} from './profile-recall';
+import { conversationActSchema, conversationReply } from './conversation-reply';
 
 const evidence = z.string().min(1).max(1000);
 const field = z.enum(['name','manufacturer','group','driveType']);
@@ -48,6 +49,7 @@ const operationSchema = z.discriminatedUnion('type', [
 export const advisorPlanSchema = catalogPlanSchema.extend({
   intent:z.enum(['profile_recall','conversation','hypothetical','workflow','resume']).optional(),
   recallTopic:recallTopicSchema.optional(),
+  conversationAct:conversationActSchema.optional(),
   filters:catalogFiltersSchema.default({}),
   goal:advisorStateSchema.shape.goal.optional(), operations:z.array(operationSchema).max(12).default([])
 }).strict();
@@ -57,6 +59,11 @@ export const ADVISOR_SYSTEM = `תפקיד: לפרש שיחה של CarWise בעב
 intent מתאר את ההודעה הנוכחית בלבד, לא את מטרת העבודה השמורה.
 שאלה על פרטים אישיים שמורים או זיכרון: intent profile_recall, action help, recallTopic profile/occupation/current_vehicle/conversation/financial, ללא operations.
 שאלת צד, הסבר או שיחה רגילה: intent conversation; אין לחפש רכבים או להפעיל חישוב בגלל מטרה ישנה.
+לשיחה רגילה יש לציין conversationAct לפי משמעות ההודעה בהקשר, ולא רק לפי מילת מפתח:
+acknowledge להודעת תודה או אישור הבנה (למשל תודה, מעולה, סבבה, הבנתי); farewell לסיום שיחה; pause לביטול או עצירה (למשל לא משנה).
+clarify לשאלת המשך כמו למה; explain לבקשת הסבר חוזר; annual לשאלת סכום לשנה; advice לשאלה מה עדיף לי.
+להודעות אלה action help, intent conversation, ללא operations או filters חדשים. הן אינן תשובה לשדה מספרי, אישור פרופיל או התחלה של חיפוש.
+בקשה לרכב אחר היא conversationAct alternatives עם intent resume, ללא בחירת רכב שלא צוין. יש להתייחס לרכבים שכבר נבחרו ולשאלה הממתינה.
 בקשת חיפוש, בחירה, השוואה או שינוי נתונים בפועל: intent workflow. המשך מפורש של שלב קודם: intent resume.
 תפקיד היפותטי אינו שינוי תפקיד בפועל: intent hypothetical, ללא פעולות לשינוי פרופיל או עיסוק.
 action: catalog לחיפוש/המלצה/השוואה, family למסלול המשפחתי הרשמי, unknown_group כשלא יודעים עיסוק/קבוצה או מבקשים בירור נציג, greeting לברכה, value_of_use להסבר, net לשאלת נטו, help לאחר.
@@ -419,7 +426,7 @@ async function advisorTurn(track:Track, userId:string, conversationId:string, hi
     !numbersIn(withoutCarNames).length&&latest.body.length<=120;
   // "אני רוצה להשוות לרכב אחר" with a car selected: keep the selection and ask which car to add. Understood without a
   // model and never treated as a selection or a new search (a mentioned or displayed car is not a chosen car).
-  const compareAnother=!direct&&!netCheck&&Boolean(state.selectedVehicleIds?.length)&&COMPARE_WORD.test(latest.body)&&COMPARE_ANOTHER.test(latest.body)&&
+  let compareAnother=!direct&&!netCheck&&Boolean(state.selectedVehicleIds?.length)&&COMPARE_WORD.test(latest.body)&&COMPARE_ANOTHER.test(latest.body)&&
     !/[A-Za-z]{2,}|CAR-\d+/iu.test(latest.body)&&!shownNames.some(name=>latest.body.toLocaleLowerCase().includes(name.toLocaleLowerCase()))&&latest.body.length<=120;
   // "חישוב נטו לכל הרכבים שהוצגו", "להשוות את כולם": every car ALREADY SHOWN, in the employee's own words. A choice
   // (when they fit in one comparison), not a new search.
@@ -484,11 +491,26 @@ async function advisorTurn(track:Track, userId:string, conversationId:string, hi
     plan=advisorPlanSchema.parse({action:'net',goal:'waiver',intent:'workflow',filters:{}});
   }
   if (!direct&&plan.intent==='hypothetical') return answerHypothetical();
+  if (!direct && plan.conversationAct === 'alternatives') {
+    if (!state.selectedVehicleIds?.length) return sideReply('בשמחה. לאיזה רכב או סוג הנעה נרצה לחפש חלופה?', 'conversation');
+    compareAnother = true;
+    plan = advisorPlanSchema.parse({ action:'help', intent:'resume', filters:{} });
+  }
+  if (!direct && plan.intent === 'conversation' && plan.conversationAct) {
+    const label = state.pendingField && state.pendingField in REQUESTABLE_FIELDS
+      ? REQUESTABLE_FIELDS[state.pendingField as keyof typeof REQUESTABLE_FIELDS].label : undefined;
+    return sideReply(conversationReply(plan.conversationAct, history, label), 'conversation');
+  }
   const currentDiscoveryWords=EXPLICIT_NEW_SEARCH.test(latest.body)||NEW_CAR_SEARCH.test(latest.body)||(CAR_SET.test(latest.body)&&DISCOVERY_VERB.test(latest.body));
   const ordinarySideQuestion=!direct&&!netCheck&&!compareAnother&&!labeled.length&&!correctionContext&&!correctionButton&&!currentDiscoveryWords&&plan.operations.length===0&&
     (plan.intent==='conversation'||['value_of_use','greeting'].includes(plan.action)||
       (plan.action==='help'&&/\?|^(?:מה|איך|למה)\s/u.test(latest.body)));
   if (ordinarySideQuestion) {
+    if (plan.action !== 'value_of_use' && plan.action !== 'greeting') {
+      const label = state.pendingField && state.pendingField in REQUESTABLE_FIELDS
+        ? REQUESTABLE_FIELDS[state.pendingField as keyof typeof REQUESTABLE_FIELDS].label : undefined;
+      return sideReply(conversationReply(undefined, history, label), 'conversation');
+    }
     const body=await generateCatalogReply(userId,history,{...dependencies.catalog,
       resume:{group:state.group,groupSource:state.groupSource,awaitingGroup:false,filters:state.preferences},resolvedFilters:state.preferences,
       plan:async()=>({action:plan.action==='value_of_use'?'value_of_use':plan.action==='greeting'?'greeting':'help',filters:state.preferences})});
