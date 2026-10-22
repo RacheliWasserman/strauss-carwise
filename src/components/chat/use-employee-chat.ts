@@ -12,8 +12,14 @@ function errorMessage(error: unknown) {
   return error instanceof ChatApiError ? error.message : 'משהו השתבש בחיבור. אפשר לנסות שוב.';
 }
 
+const activeKeyOf = (userId: string) => `carwise:active:${userId}`;
+/** Which conversation the chat opens next (another page, e.g. the catalog sidebar, choosing one before navigating). */
+export function rememberActiveConversation(userId: string, id: string | null) {
+  try { localStorage.setItem(activeKeyOf(userId), id ?? 'new'); } catch { /* Storage is optional. */ }
+}
+
 export function useEmployeeChat(userId: string) {
-  const activeKey = `carwise:active:${userId}`;
+  const activeKey = activeKeyOf(userId);
   const pendingKey = `carwise:pending:${userId}`;
   const [ready, setReady] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -22,6 +28,9 @@ export function useEmployeeChat(userId: string) {
   const [historyLoading, setHistoryLoading] = useState(true);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [revealIds, setRevealIds] = useState<ReadonlySet<string>>(new Set());
+  const visibleMessages = useRef(messages);
+  visibleMessages.current = messages;
   const [messageCursor, setMessageCursor] = useState<ChatCursor | null>(null);
   const [threadLoading, setThreadLoading] = useState(false);
   const [olderLoading, setOlderLoading] = useState(false);
@@ -32,6 +41,8 @@ export function useEmployeeChat(userId: string) {
   const [sendError, setSendError] = useState<string | null>(null);
   const [needsLogin, setNeedsLogin] = useState(false);
   const [titles, setTitles] = useState<Record<string, string>>({});
+  /** The conversation whose saved messages are loaded (null until the active one has loaded). */
+  const [loadedId, setLoadedId] = useState<string | null>(null);
   const delivery = useRef(new ChatDelivery());
   const sendLock = useRef(false);
   const historyLock = useRef(false);
@@ -42,6 +53,10 @@ export function useEmployeeChat(userId: string) {
   activeRef.current = activeId;
 
   const receiveAssistant = useCallback((message: ChatMessage) => {
+    if (activeRef.current !== message.conversation_id) return;
+    if (!visibleMessages.current.some(item => item.id === message.id)) {
+      setRevealIds(current => new Set(current).add(message.id));
+    }
     setMessages(current => mergeMessages(current, [message]));
     setConversations(current => mergeConversations(current, current.filter(item => item.id === message.conversation_id)
       .map(item => ({ ...item, last_message_at: message.created_at, updated_at: message.created_at }))));
@@ -109,7 +124,7 @@ export function useEmployeeChat(userId: string) {
       const [details, page] = await Promise.all([chatApi.conversation(id, signal), chatApi.messages(id, null, signal)]);
       if (signal?.aborted || activeRef.current !== id) return;
       setConversations(current => mergeConversations(current, [details.conversation]));
-      setMessages(page.messages); setMessageCursor(page.nextCursor);
+      setMessages(page.messages); setMessageCursor(page.nextCursor); setLoadedId(id);
       reconcilePending(page.messages);
       if (!page.nextCursor && page.messages[0]) setTitles(current => ({ ...current, [id]: page.messages[0].body.slice(0, 70) }));
     } catch (error) {
@@ -120,7 +135,7 @@ export function useEmployeeChat(userId: string) {
   }, [reconcilePending]);
 
   useEffect(() => {
-    setMessages([]); setMessageCursor(null); setThreadError(null); setThreadLoading(Boolean(activeId));
+    setMessages([]); setRevealIds(new Set()); setMessageCursor(null); setThreadError(null); setThreadLoading(Boolean(activeId));
     if (!ready || !activeId) return;
     const controller = new AbortController();
     void loadThread(activeId, controller.signal);
@@ -209,10 +224,22 @@ export function useEmployeeChat(userId: string) {
     if (!text || text.length > 16000) return;
     void execute({ requestId: crypto.randomUUID(), conversationId: activeId, body: text }, true);
   };
+  /**
+   * An ordinary employee message sent on the employee's own action elsewhere (e.g. a catalog vehicle's button): into
+   * the active conversation once its saved messages are loaded, or as the first message of a new conversation.
+   * Returns whether it was sent; the server handles it exactly like typed text.
+   */
+  const sendWhenReady = (body: string) => {
+    const text = body.trim();
+    if (sendLock.current || !ready || aiThinkingRef.current || pendingRef.current || !text || text.length > 16000) return false;
+    if (activeId && (loadedId !== activeId || threadLoading || threadError)) return false;
+    void execute({ requestId: crypto.randomUUID(), conversationId: activeId, body: text }, true);
+    return true;
+  };
 
   return {
-    ready, activeId, sendText, conversations, historyCursor, historyLoading, historyError,
-    messages, messageCursor, threadLoading, olderLoading, threadError,
+    ready, activeId, sendText, sendWhenReady, conversations, historyCursor, historyLoading, historyError,
+    messages, revealIds, messageCursor, threadLoading, olderLoading, threadError,
     draft, setDraft, pending, sending, sendError, needsLogin, titles,
     selectConversation, submit, loadOlder,
     loadMoreHistory: () => loadHistory(historyCursor),

@@ -27,9 +27,9 @@ function upload(name: string | null, options: { consent?: string; extraFile?: bo
   if (options.origin) headers.origin = options.origin;
   return POST(new Request(`http://localhost/api/conversations/${options.id ?? conversationId}/payslip`, { method: 'POST', body: form, headers }), params(options.id));
 }
-const visionA = { is_payslip: true, legibility: 'good', fields: [
-  { field: 'base_salary', found: true, label_text: 'שכר יסוד', value_text: '18,500.00', unit: 'currency' },
-  { field: 'employee_pension_percent', found: true, label_text: 'פנסיה % עובד', value_text: '6.00%', unit: 'percent', column: 'employee' }] };
+const visionA = { is_payslip: true, legibility: 'good', candidates: [
+  { field: 'base_salary', label_text: 'שכר יסוד', value_text: '18,500.00', unit: 'currency' },
+  { field: 'employee_pension_percent', label_text: 'פנסיה % עובד', value_text: '6.00%', unit: 'percent', column: 'employee' }] };
 
 let userId: string;
 beforeEach(() => {

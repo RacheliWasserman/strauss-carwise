@@ -35,7 +35,7 @@ export function ChatComposer(props: Props) {
           disabled={props.payslipDisabled} title={props.payslipDisabled ? 'אפשר להעלות תלוש אחרי שמתחילים שיחה' : undefined}>
           <ChatIcon name="document" /><span>העלאת תלוש שכר</span></button>}<span><ChatIcon name={props.pending ? 'clock' : 'spark'} />{props.sending ? 'ההודעה נשמרת…' : props.pending ? 'ההודעה ממתינה לאישור שמירה' : 'המקום לשאלות שלך'}</span>
         <button className="cw-send" type="submit" disabled={props.disabled || props.sending || !props.value.trim()} aria-label={props.pending ? 'ניסיון שליחה חוזר ללא כפילות' : 'שליחת הודעה'}>
-          <span>{props.sending ? 'בשמירה' : props.pending ? 'ניסיון חוזר' : 'שליחה'}</span>{props.sending ? <i className="cw-spinner" /> : <ChatIcon name={props.pending ? 'retry' : 'arrow'} />}
+          <span>{props.sending ? 'בשמירה' : props.pending ? 'ניסיון חוזר' : 'שליחה'}</span>{props.sending ? <i className="cw-spinner" aria-hidden="true" /> : <ChatIcon name={props.pending ? 'retry' : 'arrow'} />}
         </button>
       </div>
     </form>

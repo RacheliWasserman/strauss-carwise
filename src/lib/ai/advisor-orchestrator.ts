@@ -16,6 +16,7 @@ import {detectOccupation} from './occupation-matcher';
 import { searchAdvisorVehicles } from '../advisor-catalog-service';
 import { getCalculationRules } from '../rules-repository';
 import { activeCatalog, joinNames, selectableForGroup, vehiclesMentioned, vehiclesNamed, type CatalogRow } from './vehicle-selection';
+import { MODEL_ALIASES, normalizeVehicleText } from './vehicle-identification';
 import { decodeRepAnswer, fieldFromTopic, formatAnswerValue, REQUESTABLE_FIELDS } from '../representative-answer';
 import type { RepresentativeRequestRow } from '../representative-request-repository';
 import { applyRepresentativeValue, CURRENT_VEHICLE_TOPIC, disputedFieldsIn, GENERAL_CORRECTION_QUESTION, generalCorrectionIntent, hypothetical, questionFor, unknownFieldsIn } from './financial-flow';
@@ -80,7 +81,7 @@ report_fact: field אחד מ-display_name, base_salary, commissions, bonus, empl
 askedField בנתוני היישום הוא השדה של השאלה היחידה שמוצגת כעת; תשובה קצרה כמו "18 אלף" או "אין" מתייחסת אליו. אם העובד מוסר גם ערכים נוספים, יש להחזיר report_fact לכל אחד.
 unknown_fact: field, evidence — כשהעובד אומר שאינו יודע ערך.
 report_current_vehicle: hasCar true עם name כשהעובד מתאר את הרכב הצמוד שיש לו היום — name הוא שם הדגם המסחרי באותיות לטיניות כפי שנהוג בקטלוג (למשל "קורולה קרוס" → COROLLA CROSS), או כפי שנכתב כשאין ודאות; hasCar false כשאין לו רכב חברה כיום; evidence.
-select_vehicles: כשהעובד בוחר, רוצה, מעדיף או משווה דגם מסוים או כמה דגמים ("אני רוצה ATTO 3", "בעצם EV3", "להשוות ATTO 3 ו-EV3", "את הראשון"): vehicleIds מתוך shownVehicles לדגמים שהוצגו, ו-names בשם הדגם המסחרי (באותיות לטיניות כמו בקטלוג) לכל דגם שנבחר. זו בחירה ולא חיפוש: אין להחזיר set_preference name או filters.name כשהעובד בוחר דגם. compare_all כשמבקשים את כל הרכבים שהוצגו.
+select_vehicles: כשהעובד בוחר, רוצה, מעדיף או משווה דגם מסוים או כמה דגמים ("אני רוצה ATTO 3", "בעצם EV3", "להשוות ATTO 3 ו-EV3", "את הראשון"): vehicleIds מתוך shownVehicles לדגמים שהוצגו, ו-names בשם הדגם המסחרי (באותיות לטיניות כמו בקטלוג) לכל דגם שנבחר. זו בחירה ולא חיפוש: אין להחזיר set_preference name או filters.name כשהעובד בוחר דגם. compare_all רק כשהעובד מבקש במפורש להשוות את כל הרכבים שהוצגו ("להשוות את כולם"). בקשה להשוות לרכב אחר בלי לנקוב בשם ("להשוות לרכב אחר") אינה בחירה ואינה compare_all: אין להחזיר עבורה select_vehicles או compare_all. לעולם אין לבחור רכב רק כי הוצג, הוצע או הוזכר בתשובה קודמת.
 set_preference name רק כשהעובד מבקש לחפש או לראות דגם שעדיין לא נבחר כבחירה, למשל "יש לכם קיה?".
 request_representative: evidence, כשהעובד מבקש נציג אנושי. אין לפתוח פנייה בעצמך.
 אישור פרטים נעשה רק בכפתור עם קוד; לעולם אין להסיק שהעובד אישר. בקשת חישוב נטו או השפעה על השכר היא goal net; ויתור על רכב הוא goal waiver.
@@ -120,6 +121,19 @@ const CAR_SET=/(?:^|[^\p{L}])[והבלמש]?(?:רכבים|רכבי|אפשרוי�
 const DISCOVERY_VERB=/(?:להשוות|השוואה|להשוואה|תן לי|תני לי|תראה|תראי|תראו|הראה|הראי|בוא נראה|בואי נראה|לחפש|לראות|איזה|אילו|מגיעים|מגיע לי|זכאי|זכאית|זכאים|אופציונל|אחרים|אחרות|זמינים|מתאימים|כל ה)/u;
 const NEW_CAR_SEARCH=/(?:לחפש|חיפוש|חפשי|חפש)\s+(?:לי\s+)?(?:רכב|רכבים)|(?:^|[^\p{L}])רכב\s+(?:חדש|אחר)(?=$|[^\p{L}])/u;
 const COMPARE_WORD=/להשוות|השוואה|להשוואה|השווי|תשווי/u;
+/**
+ * Comparison with ONE MORE car the employee has not named yet ("להשוות לרכב אחר", "להשוות לעוד דגם"). It is neither a
+ * selection nor a new search: the current selection stays, and the employee is asked which car to add.
+ */
+const COMPARE_ANOTHER=/(?:רכב|דגם|אופציה|חלופה)\s+(?:אחר|אחרת|נוסף|נוספת)(?=$|[^\p{L}])|(?:^|[^\p{L}])[לב]?עוד\s+(?:רכב|דגם)(?=$|[^\p{L}])/u;
+/** The employee's own words refer to every car shown ("להשוות את כולם", "להשוות את כל הרכבים"): only then is compare_all a choice. */
+const ALL_SHOWN=/(?:^|[^\p{L}])[ול]?(?:כולם|כולן)(?=$|[^\p{L}])|(?:^|[^\p{L}])[ולב]?כל\s+ה(?:רכבים|דגמים|אפשרויות|אופציות|חלופות)(?=$|[^\p{L}])/u;
+/** ...together with what to do with them: compare or calculate ("חישוב נטו לכל הרכבים שהוצגו"). */
+const ALL_SHOWN_ACTION=/להשוות|השוואה|להשוואה|השווי|תשווי|חישוב|לחשב|תחשב|תחשבי|נטו/u;
+/** Words that point at a car already on screen ("את הראשון", "את הזה", "שניהם"): a model may resolve them to shown cars. */
+const SHOWN_REFERENCE=/(?:^|[^\p{L}])ה?(?:ראשון|ראשונה|שני|שנייה|שניה|שלישי|שלישית|רביעי|רביעית|חמישי|חמישית|שישי|שישית|אחרון|אחרונה|זה|הזה|זאת|הזאת|הזו|אותו|אותה|שניהם|שתיהן|שלושתם|שלושתן)(?=$|[^\p{L}])/u;
+/** At most this many cars are compared at once; more is never cut down silently. */
+const MAX_COMPARED=6;
 /** Explicit wording only; a model's new_search alone never restarts discovery during a financial workflow. */
 const EXPLICIT_NEW_SEARCH=/(?:חיפוש חדש|חיפוש מחדש|נתחיל מחדש|חפשי מחדש|חפש מחדש|להתחיל מחדש)/u;
 const WAIVER_INTENT=new RegExp('(?:^|[^\\p{L}])[ולשה]?(?:לוותר|אוותר|ויתור|בוויתור|מוותרת|מוותר)(?=$|[^\\p{L}])'+
@@ -370,9 +384,18 @@ async function advisorTurn(track:Track, userId:string, conversationId:string, hi
   // Turns that are unambiguous without interpretation never depend on a model being available.
   const shownNames=(state.shownVehicles??[]).map(vehicle=>vehicle.name);
   const withoutCarNames=shownNames.reduce((text,name)=>text.split(name).join(' '),latest.body);
-  // "כמה ATTO 3 ישפיע על הנטו שלי?" right after the net check was offered for the selected car.
-  const netCheck=previous?.pendingQuestion==='next_step'&&Boolean(state.selectedVehicleIds?.length)&&/נטו/u.test(latest.body)&&
+  // "כמה ATTO 3 ישפיע על הנטו שלי?" right after the net check was offered for the selected car (also while a comparison
+  // is open: that button is still on screen).
+  const netCheck=['next_step','comparison'].includes(previous?.pendingQuestion??'')&&Boolean(state.selectedVehicleIds?.length)&&/נטו/u.test(latest.body)&&
     !numbersIn(withoutCarNames).length&&latest.body.length<=120;
+  // "אני רוצה להשוות לרכב אחר" with a car selected: keep the selection and ask which car to add. Understood without a
+  // model and never treated as a selection or a new search (a mentioned or displayed car is not a chosen car).
+  const compareAnother=!direct&&!netCheck&&Boolean(state.selectedVehicleIds?.length)&&COMPARE_WORD.test(latest.body)&&COMPARE_ANOTHER.test(latest.body)&&
+    !/[A-Za-z]{2,}|CAR-\d+/iu.test(latest.body)&&!shownNames.some(name=>latest.body.toLocaleLowerCase().includes(name.toLocaleLowerCase()))&&latest.body.length<=120;
+  // "חישוב נטו לכל הרכבים שהוצגו", "להשוות את כולם": every car ALREADY SHOWN, in the employee's own words. A choice
+  // (when they fit in one comparison), not a new search.
+  const allShownRequested=!direct&&!compareAnother&&previous?.pendingField!=='current_vehicle_id'&&Boolean(state.shownVehicles?.length)&&ALL_SHOWN.test(latest.body)&&ALL_SHOWN_ACTION.test(latest.body)&&
+    /שהוצגו|שהצגת|שהראית|האלה|האלו|(?:^|[^\p{L}])[ול]?(?:כולם|כולן)(?=$|[^\p{L}])/u.test(latest.body);
   // Without a model, only these remain understandable: a short answer to the question on screen, or a car named
   // by a shown name or catalog ID. Everything else must still fail visibly rather than guess.
   const deterministicFallback=Boolean(previous?.pendingField&&latest.body.trim().length<=40&&!latest.body.includes('?'))||
@@ -399,6 +422,9 @@ async function advisorTurn(track:Track, userId:string, conversationId:string, hi
   else if (netCheck) {
     plan=advisorPlanSchema.parse({action:'net',goal:'net',filters:{}});
     console.info('[carwise.ai.advisor]',{phase:'plan',outcome:'deterministic',reason:'net_check'});
+  } else if (compareAnother) {
+    plan=advisorPlanSchema.parse({action:'help',filters:{}});
+    console.info('[carwise.ai.advisor]',{phase:'plan',outcome:'deterministic',reason:'compare_another'});
   } else if (labeled.length>=2) {
     plan=advisorPlanSchema.parse({action:'net',filters:{},operations:labeled});
     console.info('[carwise.ai.advisor]',{phase:'plan',outcome:'deterministic',reason:'labeled_fields',fields:labeled.length});
@@ -430,7 +456,7 @@ async function advisorTurn(track:Track, userId:string, conversationId:string, hi
   }
   if (!direct&&plan.intent==='hypothetical') return answerHypothetical();
   const currentDiscoveryWords=EXPLICIT_NEW_SEARCH.test(latest.body)||NEW_CAR_SEARCH.test(latest.body)||(CAR_SET.test(latest.body)&&DISCOVERY_VERB.test(latest.body));
-  const ordinarySideQuestion=!direct&&!netCheck&&!labeled.length&&!correctionContext&&!correctionButton&&!currentDiscoveryWords&&plan.operations.length===0&&
+  const ordinarySideQuestion=!direct&&!netCheck&&!compareAnother&&!labeled.length&&!correctionContext&&!correctionButton&&!currentDiscoveryWords&&plan.operations.length===0&&
     (plan.intent==='conversation'||['value_of_use','greeting'].includes(plan.action)||
       (plan.action==='help'&&/\?|^(?:מה|איך|למה)\s/u.test(latest.body)));
   if (ordinarySideQuestion) {
@@ -474,7 +500,8 @@ async function advisorTurn(track:Track, userId:string, conversationId:string, hi
   if (waiverIntent) {state.activeGoal={kind:'waiver'};state.goal='waiver';}
   // An explicit request to see or compare cars, in THIS message, replaces a persisted goal (e.g. a completed waiver):
   // the old goal must not be replayed as the answer. Never inside a correction; an explicit waiver wins.
-  const discoveryIntent=!correctionContext&&!waiverIntent&&(EXPLICIT_NEW_SEARCH.test(latest.body)||NEW_CAR_SEARCH.test(latest.body)||
+  // "להשוות לרכב אחר" mentions "another car" but is a comparison with the current selection, not a new search.
+  const discoveryIntent=!correctionContext&&!waiverIntent&&!compareAnother&&!allShownRequested&&(EXPLICIT_NEW_SEARCH.test(latest.body)||NEW_CAR_SEARCH.test(latest.body)||
     (CAR_SET.test(latest.body)&&DISCOVERY_VERB.test(latest.body)));
   const discoveryGoal=COMPARE_WORD.test(latest.body)?'net' as const:'catalog' as const;
   // Filters restart only when the discovery replaces a goal or asks for all/other cars; otherwise the employee's
@@ -614,34 +641,62 @@ async function advisorTurn(track:Track, userId:string, conversationId:string, hi
   type Selection={rows:CatalogRow[];ineligible:CatalogRow[];alternatives:CatalogRow[];ambiguous?:{name:string;rows:CatalogRow[]}};
   let selection:Selection|undefined;
   let vehiclesNamedNow=false;
-  let comparisonLimited=false;
+  // More cars than can be compared at once: nothing is selected, the employee chooses (never cut down silently).
+  let tooMany=false;
+  // Catalog IDs the employee wrote that are not active catalog vehicles ("(CAR-99)"): answered as such, never as a listing.
+  let unknownIds:string[]=[];
+  // The employee's current car(s), for the reply: choosing it alone means "no vehicle change", not a new car.
+  let currentIds=new Set<string>();
+  // The same car chosen again (e.g. a repeated catalog click): acknowledged again, state unchanged.
+  let reconfirmed:CatalogRow[]|undefined;
   if (!direct && !plan.operations.some(operation=>operation.type==='new_search') &&
-    (selectionOperations.length||nameFilters.length||mayNameVehicle||(state.vehicleInterest?.length&&state.group))) {
+    (selectionOperations.length||nameFilters.length||mayNameVehicle||allShownRequested||(state.vehicleInterest?.length&&state.group))) {
     try {
       const catalog=await activeCatalog(dependencies.catalog?.search??searchAdvisorVehicles);
       const shown=state.shownVehicles??[];
       const current=new Set(state.pendingFacts.flatMap(fact=>fact.field==='current_vehicle_id'?[String(fact.value)]:[]));
       try { const profile=await (await financial()).confirmed(userId); if (profile?.user_id===userId&&profile.current_vehicle_id) current.add(profile.current_vehicle_id); }
       catch { /* Without a profile there is no current car to exclude. */ }
+      currentIds=current;
+      // Canonical IDs in the employee's text ("BYD DOLPHIN (CAR-03)"): the strongest evidence of an explicit choice.
+      const writtenIds=[...new Set([...latest.body.matchAll(/(?:^|[^A-Za-z0-9])([A-Za-z]{2,}-\d+)(?![A-Za-z0-9])/gu)].map(match=>match[1]))];
+      unknownIds=writtenIds.filter(id=>!catalog.some(row=>row.id.toLocaleLowerCase()===id.toLocaleLowerCase()));
       let ambiguous:Selection['ambiguous'];
       const rows:CatalogRow[]=answeringCurrentCar?[]:vehiclesMentioned(latest.body,catalog);
-      const byName=(name:string) => {
-        const found=vehiclesNamed(name,catalog);
+      // A car proposed by the model counts only when the employee's own message names it (catalog name, ID or a Hebrew
+      // spelling) or points at a car on screen ("את הראשון"). A car that was merely shown, suggested or mentioned in
+      // an earlier reply is never chosen on the model's word.
+      const ownWords=normalizeVehicleText(latest.body);
+      const written=(row:CatalogRow)=>latest.body.includes(row.id)||vehiclesMentioned(latest.body,[row]).length>0||
+        (MODEL_ALIASES[row.display_name]??[]).some(alias=>` ${ownWords} `.includes(normalizeVehicleText(alias)));
+      const pointedAt=(row:CatalogRow,evidence:string)=>shown.some(vehicle=>vehicle.id===row.id)&&SHOWN_REFERENCE.test(evidence);
+      const byName=(name:string,evidence?:string) => {
+        // The employee's words decide whether the model's name counts at all; candidates sharing it stay (an
+        // ambiguous "קורולה" still asks COROLLA or COROLLA CROSS).
+        const all=vehiclesNamed(name,catalog);
+        const found=all.some(row=>written(row)||(evidence!==undefined&&pointedAt(row,evidence)))?all:[];
         if (found.length===1) rows.push(found[0]);
         else if (found.length>1&&!found.some(row=>rows.some(item=>item.id===row.id))) ambiguous??={name,rows:found.slice(0,5)};
       };
+      // "Compare / calculate all" is a choice only when the employee's own words ask for every car shown; a model's
+      // compare_all alone never selects the cars on screen.
+      // (The current car is the baseline of such a comparison, not one of the alternatives.)
+      if (allShownRequested) rows.push(...catalog.filter(row=>shown.some(vehicle=>vehicle.id===row.id)&&!current.has(row.id)));
       for (const operation of selectionOperations) {
-        if (operation.type==='compare_all') rows.push(...catalog.filter(row=>shown.some(vehicle=>vehicle.id===row.id)));
-        else {
-          // Model IDs count only for vehicles that were shown or that the employee wrote.
-          rows.push(...catalog.filter(row=>operation.vehicleIds.includes(row.id)&&(shown.some(vehicle=>vehicle.id===row.id)||latest.body.includes(row.id))));
-          (operation.names??[]).forEach(byName);
+        if (operation.type==='compare_all') {
+          if (!allShownRequested) console.info('[carwise.ai.advisor]',{phase:'vehicle_selection',outcome:'compare_all_ignored'});
+        } else {
+          rows.push(...catalog.filter(row=>operation.vehicleIds.includes(row.id)&&(written(row)||pointedAt(row,operation.evidence))));
+          (operation.names??[]).forEach(name=>byName(name,operation.evidence));
         }
       }
-      nameFilters.forEach(byName);
-      const unique=[...new Map(rows.filter(row=>!current.has(row.id)).map(row=>[row.id,row])).values()];
-      comparisonLimited=unique.length>6;
-      let chosen=unique.slice(0,6);
+      nameFilters.forEach(name=>byName(name));
+      // The current car named together with other cars is the baseline ("לעבור מ-DOLPHIN ל-ATTO 3"); named ALONE it is
+      // the employee's explicit choice and is kept (the reply then says it is no vehicle change).
+      const named=[...new Map(rows.map(row=>[row.id,row])).values()];
+      const unique=named.some(row=>!current.has(row.id))?named.filter(row=>!current.has(row.id)):named;
+      tooMany=unique.length>MAX_COMPARED;
+      let chosen=tooMany?[]:unique;
       if (!chosen.length&&!ambiguous&&state.vehicleInterest?.length&&state.group) chosen=catalog.filter(row=>state.vehicleInterest!.includes(row.id));
       if (chosen.length||ambiguous) {
         vehiclesNamedNow=chosen.length>0;
@@ -650,7 +705,16 @@ async function advisorTurn(track:Track, userId:string, conversationId:string, hi
         if (!state.group) state.vehicleInterest=chosen.map(row=>row.id);
         else {
           const rules=await (dependencies.catalog?.rules??getCalculationRules)();
-          const allowed=chosen.filter(row=>selectableForGroup(row,state.group!,rules));
+          let allowed=chosen.filter(row=>selectableForGroup(row,state.group!,rules));
+          // Answering "which car to compare with?": the explicit choice is ADDED to the cars already selected (they stay first).
+          // "רק / במקום / בעצם" says the choice replaces the selection instead.
+          const replaces=/(?:^|[^\p{L}])(?:רק|במקום|בעצם)(?=$|[^\p{L}])/u.test(latest.body);
+          if (previous?.pendingQuestion==='comparison'&&!replaces&&allowed.length&&state.selectedVehicleIds?.length) {
+            const kept=state.selectedVehicleIds.flatMap(id=>catalog.filter(row=>row.id===id&&selectableForGroup(row,state.group!,rules)));
+            const added=[...kept,...allowed.filter(row=>!kept.some(item=>item.id===row.id))];
+            if (added.length>MAX_COMPARED) {tooMany=true;allowed=[];selection.rows=[];}
+            else allowed=added;
+          }
           selection.ineligible=chosen.filter(row=>!allowed.includes(row));
           selection.rows=allowed;
           if (!allowed.length&&selection.ineligible.length) {
@@ -660,7 +724,7 @@ async function advisorTurn(track:Track, userId:string, conversationId:string, hi
           // Naming the already-selected car again (e.g. "כמה ATTO 3 ישפיע על הנטו?") confirms it; it is not a new choice.
           const unchanged=allowed.length>0&&!selection.ineligible.length&&JSON.stringify(allowed.map(row=>row.id))===JSON.stringify(state.selectedVehicleIds??[]);
           if (unchanged) {
-            selection=undefined;
+            reconfirmed=allowed;selection=undefined;
             if (!waiverIntent) state.activeGoal={kind:'vehicles',vehicleIds:allowed.map(row=>row.id)};
           }
           else if (allowed.length) {
@@ -737,6 +801,37 @@ async function advisorTurn(track:Track, userId:string, conversationId:string, hi
   }
   if (state.group) state.pendingQuestion=null;
   const pick=(row:CatalogRow)=>({label:row.display_name.slice(0,60),body:`אני רוצה את ${row.display_name} (${row.id})`.slice(0,200)});
+  if (tooMany) return respond(`אפשר להשוות עד ${MAX_COMPARED} רכבים בכל פעם, ולכן לא שיניתי את הבחירה. אילו רכבים (עד ${MAX_COMPARED}) להשוות?`);
+  // An explicit catalog ID that is not an active catalog vehicle is said plainly; the catalog is not listed instead.
+  if (unknownIds.length&&!compareAnother&&!reconfirmed&&!selection?.rows.length&&!selection?.ambiguous&&!selection?.ineligible.length) {
+    const many=unknownIds.length>1;
+    return respond(`${many?'הרכבים':'הרכב'} ${unknownIds.join(', ')} ${many?'לא נמצאו':'לא נמצא'} בקטלוג הרכבים הפעיל של החברה, ולכן לא שיניתי את הבחירה. אפשר לבחור רכב מהקטלוג.`,
+      {actions:[{label:'להציג רכבים שמתאימים לי',body:'אילו רכבים מגיעים לי?'}]});
+  }
+  // "Compare with another car": the selection stays first; the employee chooses the car to add (cards are only options).
+  if (compareAnother&&state.group) {
+    track.stage='comparison';
+    const catalog=await activeCatalog(dependencies.catalog?.search??searchAdvisorVehicles);
+    const rules=await (dependencies.catalog?.rules??getCalculationRules)();
+    const selectedIds=state.selectedVehicleIds??[];
+    const kept=selectedIds.flatMap(id=>catalog.filter(row=>row.id===id));
+    const current=new Set<string>();
+    try { const profile=await (await financial()).confirmed(userId); if (profile?.user_id===userId&&profile.current_vehicle_id) current.add(profile.current_vehicle_id); }
+    catch { /* Without a profile there is no current car to leave out. */ }
+    // Family-track cars are offered by the family flow only (as in the catalog listing), never as generic options.
+    const options=catalog.filter(row=>!selectedIds.includes(row.id)&&!current.has(row.id)&&row.group_code!=='משפחתי'&&selectableForGroup(row,state.group!,rules)).slice(0,24);
+    const names=joinNames(kept.map(row=>row.display_name));
+    state.pendingQuestion='comparison';
+    // Displayed options are remembered only as shown cars (for "את הראשון"); none of them is selected.
+    if (options.length) state.shownVehicles=options.map(row=>({id:row.id,name:row.display_name}));
+    console.info('[carwise.ai.advisor]',{phase:'comparison',outcome:'awaiting_vehicle',selected:selectedIds.length,options:options.length});
+    return {body:encodeCatalogMessage({kind:'carwise.catalog.v1',recordedAt:new Date().toISOString(),cards:options,
+      state:{group:state.group,groupSource:state.groupSource,awaitingGroup:false,filters:state.preferences},
+      text:selectedIds.length>=MAX_COMPARED?`כבר נבחרו ${MAX_COMPARED} רכבים, המספר המרבי להשוואה. אפשר לבחור רכב אחר במקום אחד מהם.`
+        :`בשמחה. ${names} ${kept.length>1?'נשארים':'נשאר'} בהשוואה. עם איזה רכב להשוות? אפשר לבחור מהרכבים שמתאימים לך או לכתוב שם דגם.`,
+      actions:[{label:'כמה זה ישפיע על הנטו?',body:`כמה ${names} ישפיע על הנטו שלי?`.slice(0,200),primary:true}]}),
+      state:advisorStateSchema.parse(state)};
+  }
   if (selection?.ambiguous && !selection.rows.length) {
     return respond(`למה התכוונת: ${selection.ambiguous.rows.map(row=>row.display_name).join(' או ')}?`,{actions:selection.ambiguous.rows.map(pick)});
   }
@@ -751,7 +846,8 @@ async function advisorTurn(track:Track, userId:string, conversationId:string, hi
         (selection.alternatives.length?`אלה רכבים דומים שכן מתאימים לך. איזה מהם מעניין אותך?`:'רוצה לראות רכבים שכן מתאימים לך?')}),
       state:advisorStateSchema.parse(state)};
   }
-  const selected=selection?.rows.length?selection.rows:undefined;
+  // A repeated explicit choice of the selected car (outside the financial flow) is acknowledged again, unchanged.
+  const selected=selection?.rows.length?selection.rows:reconfirmed&&!financialTurn?reconfirmed:undefined;
   const resume:CatalogMessage['state']={group:state.group,groupSource:state.groupSource,awaitingGroup:false,filters:state.preferences};
   // In a financial turn the catalog is shown only when the search changed or nothing was shown yet.
   track.stage='catalog';
@@ -769,10 +865,16 @@ async function advisorTurn(track:Track, userId:string, conversationId:string, hi
   if (selected) {
     // The chosen car is acknowledged, never recommended again.
     const names=joinNames(selected.map(row=>row.display_name));
-    const blocked=selection!.ineligible.length?`${joinNames(selection!.ineligible.map(row=>row.display_name))} לא זמין לתפקיד שלך לפי כללי החברה. `:'';
+    const blocked=selection?.ineligible.length?`${joinNames(selection.ineligible.map(row=>row.display_name))} לא זמין לתפקיד שלך לפי כללי החברה. `:'';
     reply={kind:'carwise.catalog.v1',text:'',cards:[],recordedAt:new Date().toISOString(),state:resume};
-    const limit=comparisonLimited?' (אפשר להשוות עד 6 רכבים בכל פעם, ולכן נבחרו 6 הראשונים.)':'';
-    if (financialTurn) reply.text=`${blocked}מעולה, בחרת ב־${names}.${limit}`;
+    // The employee's own current car, chosen alone: it is kept as the choice, and there is no vehicle change to price.
+    const onlyCurrent=selected.every(row=>currentIds.has(row.id));
+    if (financialTurn) reply.text=`${blocked}מעולה, בחרת ב־${names}.`;
+    else if (onlyCurrent) {
+      state.pendingQuestion='next_step';
+      reply.text=`${blocked}${names} ${selected.length>1?'הם הרכבים':'הוא הרכב'} שיש לך היום, כך שבחירה ${selected.length>1?'בהם':'בו'} לא משנה את הנטו לעומת היום. רוצה להשוות לרכב אחר?`;
+      reply.actions=[{label:'להשוות לרכב אחר',body:'אני רוצה להשוות לרכב אחר',primary:true}];
+    }
     else {
       state.pendingQuestion='next_step';
       reply.text=`${blocked}בחירה מצוינת! שמרתי את ${names}. רוצה לבדוק כמה ${selected.length>1?'הם ישפיעו':'זה ישפיע'} על הנטו שלך, או להשוות לרכב אחר?`;

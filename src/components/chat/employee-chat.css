@@ -16,13 +16,6 @@
 .cw-sidebar { width: 286px; flex: 0 0 286px; display: flex; flex-direction: column; padding: 33px 20px 0; background: #113b46; color: #e8f2f3; position: relative; z-index: 30; }
 .cw-sidebar::before { content: ''; position: absolute; top: 0; inset-inline-end: 0; width: 1px; height: 100%; background: linear-gradient(#6db3b340,transparent); pointer-events: none; }
 .cw-sidebar-brand { display: flex; align-items: center; gap: 12px; padding: 0 7px 32px; }
-.cw-mark { width: 45px; height: 45px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 15px; color: #dcfff8; background: linear-gradient(135deg,#319c91,#18716b); box-shadow: inset 0 1px 0 #ffffff30,0 4px 12px #062c3320; }
-.cw-mark svg { width: 36px; height: 36px; }
-.cw-mark-small { width: 35px; height: 35px; border-radius: 12px; }
-.cw-mark-small svg { width: 29px; height: 29px; }
-.cw-brand-name { display: block; font-size: 27px; font-weight: 700; letter-spacing: -1px; line-height: 1.1; }
-.cw-brand-name > span { color: #e8926c; }
-.cw-brand-caption { display: block; font-size: 9px; letter-spacing: 3px; margin-top: 7px; color: #c0d6da; }
 .cw-new-chat { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border: 1px solid #8bd6c42e; border-radius: 13px; background: #e1f4e9; color: #194e48; font-weight: 700 !important; box-shadow: 0 4px 12px #082a3326; }
 .cw-new-chat:hover:not(:disabled) { background: #c9eddf; transform: translateY(-2px); }
 .cw-new-chat-corner { margin-inline-start: auto; opacity: .65; font-size: 20px; }
@@ -44,6 +37,23 @@
 .cw-history-empty > span { font-size: 11px; color: #9db9c1; }
 .cw-history-more { display: flex; justify-content: center; align-items: center; gap: 8px; width: 100%; padding: 12px; border: 0; background: none; color: #bee2dd; font-size: 12px !important; }
 .cw-history-more svg { width: 14px; }
+/* Sidebar link to the vehicle catalog (replaces the former "you can stop and come back" note). */
+.cw-catalog-nav { display: flex; align-items: center; gap: 12px; margin: 18px 2px; padding: 14px 13px; border-radius: 15px; text-decoration: none;
+  color: #eef8f6; background: linear-gradient(135deg, #1d6b64 0%, #155a58 55%, #124b51 100%); border: 1px solid #8bd6c440;
+  box-shadow: inset 0 1px 0 #ffffff1a, 0 8px 22px #04222a40; transition: transform .2s, box-shadow .2s, border-color .2s; }
+.cw-catalog-nav:hover { transform: translateY(-2px); border-color: #a6e6d470; box-shadow: inset 0 1px 0 #ffffff24, 0 12px 28px #04222a55; }
+.cw-catalog-nav-icon { width: 40px; height: 40px; flex-shrink: 0; display: grid; place-items: center; border-radius: 12px; background: #e1f4e9; color: #145c56; }
+.cw-catalog-nav-icon svg { width: 22px; height: 22px; }
+.cw-catalog-nav-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.cw-catalog-nav-text strong { font-size: 14px; letter-spacing: .1px; }
+.cw-catalog-nav-text span { font-size: 11.5px; color: #b9e4d9; }
+.cw-catalog-nav-arrow { color: #a6e6d4; display: grid; transition: transform .2s; }
+.cw-catalog-nav-arrow svg { width: 18px; height: 18px; }
+.cw-catalog-nav:hover .cw-catalog-nav-arrow { transform: translateX(-3px); }
+.cw-catalog-nav-active { background: linear-gradient(135deg, #e1f4e9, #c9eddf); color: #12423f; border-color: #c9eddf; }
+.cw-catalog-nav-active .cw-catalog-nav-icon { background: #137c77; color: #fff; }
+.cw-catalog-nav-active .cw-catalog-nav-text span { color: #2f6b63; }
+.cw-catalog-nav-active .cw-catalog-nav-arrow { color: #137c77; }
 .cw-sidebar-note { display: flex; gap: 11px; background: #ffffff06; border: 1px solid #ffffff0b; padding: 15px 12px; border-radius: 12px; margin: 20px 2px; }
 .cw-sidebar-note > svg { color: #91cfc3; flex-shrink: 0; width: 19px; margin-top: 3px; }
 .cw-sidebar-note p { margin: 0; color: #d6e7e8; font-size: 12px; line-height: 1.7; }
@@ -69,7 +79,16 @@
 .cw-topbar-symbol svg { width: 19px; height: 19px; }
 .cw-stage-badge { display: flex; align-items: center; gap: 7px; white-space: nowrap; padding: 7px 12px; border: 1px solid #e7e4d4; background: #fcfaf1; color: #7b6839; border-radius: 30px; font-size: 10px; }
 .cw-stage-badge i { width: 5px; height: 5px; border-radius: 50%; background: #b79b59; }
-.cw-chat-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.cw-chat-body { flex: 1; min-height: 0; display: flex; position: relative; flex-direction: column; }
+/* Homepage watermark: the Strauss flower's petal outlines in mint, teal and pale blue only, kept faint and in the
+   margins. Decorative (aria-hidden), never catches the pointer, always behind the welcome content and composer. */
+.cw-petal-watermark { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
+.cw-petal-watermark i { position: absolute; display: block; background: url(/brand/petal-watermark.svg) center / contain no-repeat; }
+.cw-petal-watermark i:first-child { top: 2%; inset-inline-start: -150px; width: 470px; height: 530px; opacity: .5; transform: rotate(14deg); }
+.cw-petal-watermark i:last-child { bottom: 4%; inset-inline-end: -170px; width: 400px; height: 450px; opacity: .34; transform: rotate(-160deg); }
+.cw-welcome-scroll, .cw-chat-body:has(.cw-petal-watermark) .cw-composer-region { position: relative; z-index: 1; }
+.cw-chat-body:has(.cw-petal-watermark) .cw-composer-region { background: transparent; }
+@media (max-width: 800px) { .cw-petal-watermark i:first-child { width: 300px; height: 340px; inset-inline-start: -140px; opacity: .38; }.cw-petal-watermark i:last-child { display: none; } }
 .cw-welcome-scroll { flex: 1; overflow-y: auto; min-height: 0; scrollbar-width: thin; }
 .cw-welcome { width: min(100%,860px); margin: auto; text-align: center; padding: 22px 42px 23px; animation: cw-arrive .5s ease-out both; }
 .cw-journey-art { position: relative; height: 180px; width: 265px; margin: 0 auto 10px; isolation: isolate; }
@@ -155,33 +174,16 @@
 .cw-load-older svg { width: 14px; height: 14px; }.cw-thread-error { text-align: center; color: #995033; font-size: 13px; }.cw-thread-error button { margin-bottom: 20px; }.cw-thread-error button svg { width: 15px; height: 15px; }
 .cw-new-messages { position: absolute; bottom: 15px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 7px; white-space: nowrap; background: white; color: #176f65; padding: 10px 16px; border: 1px solid #c4ded1; border-radius: 30px; box-shadow: 0 5px 20px #164b4520; font-size: 12px !important; }.cw-new-messages svg { width: 16px; height: 16px; }
 .cw-history-skeleton, .cw-thread-skeleton { display: grid; gap: 14px; padding: 20px 12px; }.cw-history-skeleton i, .cw-thread-skeleton i { display: block; height: 42px; border-radius: 10px; background: #ffffff0c; animation: cw-breathe 1.4s ease-in-out infinite alternate; }.cw-history-skeleton i:nth-child(2) { width: 80%; }.cw-thread-skeleton i { background: #e3ece6; height: 70px; width: 70%; }.cw-thread-skeleton i:nth-child(2) { width: 50%; justify-self: end; }
-.cw-initial-loading { display: flex; align-items: center; justify-content: center; flex: 1; gap: 12px; color: #5b7b6e; font-size: 13px; }
-.cw-spinner { display: inline-block; width: 15px; height: 15px; border: 1.5px solid currentColor; border-inline-end-color: transparent; border-radius: 50%; animation: cw-spin .75s linear infinite; flex-shrink: 0; }
+.cw-initial-loading { display: flex; flex: 1; }
+/* The one circular spinner: only the main composer's send/save button, so sending a short message feels light. Every
+   other loading state uses CarWiseCarLoader. With reduced motion (rule at the end of this file) it is a still ring. */
+.cw-send .cw-spinner { display: inline-block; width: 15px; height: 15px; border: 1.5px solid currentColor; border-inline-end-color: transparent; border-radius: 50%; animation: cw-spin .75s linear infinite; flex-shrink: 0; }
+@keyframes cw-spin { to { transform: rotate(360deg); } }
 .cw-icon-button { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border: 0; border-radius: 10px; color: inherit; background: transparent; }.cw-icon-button:hover { background: #7da69215; }
 .cw-menu-toggle, .cw-drawer-close, .cw-drawer-shade { display: none; }
 @keyframes cw-arrive { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes cw-breathe { from { opacity: .45; } to { opacity: 1; } }
-@keyframes cw-spin { to { transform: rotate(360deg); } }
-/* Thinking indicator: a small car drives along a fixed-size road, turns around at the end and drives back. */
-.cw-ai-thinking { display: flex; align-items: center; gap: 12px; padding: 12px 0 24px; color: #4b776b; font-size: 12px; }
-.cw-drive { position: relative; flex: 0 0 auto; width: 104px; height: 30px; overflow: hidden; direction: ltr; }
-.cw-drive-road { position: absolute; inset-inline: 2px; bottom: 3px; height: 2px; border-radius: 2px;
-  background: repeating-linear-gradient(90deg, #a6dcd4 0 9px, transparent 9px 15px); }
-.cw-drive-car { position: absolute; left: 0; bottom: 4px; width: 40px; height: 22px; animation: cw-drive-x 3.4s ease-in-out infinite; }
-.cw-drive-turn { display: block; width: 100%; height: 100%; transform-origin: 50% 50%; animation: cw-drive-turn 3.4s linear infinite; }
-.cw-drive-turn svg { display: block; overflow: visible; animation: cw-drive-bob .45s ease-in-out infinite alternate; }
-.cw-drive-body { fill: #137c77; }
-.cw-drive-glass { fill: #dff3ef; }
-.cw-drive-light { fill: #e88660; }
-.cw-drive-wheel circle { fill: #173b43; stroke: #f8faf9; stroke-width: 1.2; }
-.cw-drive-wheel path { stroke: #cfe3df; stroke-width: 1.1; stroke-linecap: round; }
-.cw-thinking-text { font-weight: 600; }
-@keyframes cw-drive-x { 0%, 4% { transform: translateX(0); } 46%, 54% { transform: translateX(62px); } 96%, 100% { transform: translateX(0); } }
-@keyframes cw-drive-turn { 0%, 47% { transform: scaleX(1); } 50% { transform: scaleX(0.15); } 53%, 97% { transform: scaleX(-1); } 100% { transform: scaleX(1); } }
-@keyframes cw-drive-bob { from { transform: translateY(0); } to { transform: translateY(-1px); } }
-@media (prefers-reduced-motion: reduce) {
-  .cw-drive-car, .cw-drive-turn, .cw-drive-turn svg { animation: none; transform: none; }
-}
+/* The thinking indicator is the shared CarWiseCarLoader (src/components/ui/carwise-car-loader.css). */
 .cw-ai-error { border: 1px solid #eedbca; background: #fff7ef; color: #865b3c; padding: 15px; border-radius: 13px; font-size: 12px; margin-bottom: 16px; line-height: 1.8; }
 .cw-ai-error p { margin: 0 0 9px; }.cw-ai-error button { display: flex; gap: 7px; align-items: center; border: 0; background: none; color: #176f65; padding: 4px 0; font-weight: 600; }.cw-ai-error button svg { width: 15px; }.cw-ai-error a { color: #176f65; text-decoration: underline; }
 @media (min-width: 1400px) { .cw-welcome { padding-top: 40px; }.cw-journey-art { margin-bottom: 20px; height: 190px; }.cw-sidebar { width: 305px; flex-basis: 305px; padding-inline: 26px; }.cw-account { margin-inline: -26px; padding-inline: 28px; } }
@@ -210,6 +212,14 @@
 .cw-catalog-caption { font-size: 12px; line-height: 1.7; color: #496471; }
 /* Approval summary, calculation results and quick replies reuse the catalog card language. */
 .cw-message-bubble { white-space: pre-line; }
+.cw-reveal { display: block; position: relative; padding-bottom: 26px; }
+.cw-reveal-reserve { visibility: hidden; }
+.cw-reveal-visible { position: absolute; inset: 0 0 auto; pointer-events: none; }
+.cw-reveal-cursor { display: inline-block; width: 2px; height: 1em; margin-inline-start: 3px; background: #18847d; vertical-align: -.12em; animation: cw-cursor-blink .8s ease-in-out infinite; }
+.cw-reveal-all { position: absolute; inset-inline-end: 0; bottom: 0; border: 0; border-radius: 6px; background: #edf5f1; color: #185b57; padding: 2px 8px; font: inherit; font-size: 11px; cursor: pointer; }
+.cw-reveal-all:focus-visible { outline: 2px solid #18847d; outline-offset: 3px; }
+@keyframes cw-cursor-blink { 50% { opacity: .15; } }
+@media (prefers-reduced-motion: reduce) { .cw-reveal-cursor { animation: none; } }
 .cw-approval, .cw-calc { margin-top: 12px; max-width: 680px; background: #fff; border: 1px solid #c8e6e5; border-radius: 18px; padding: 16px; box-shadow: 0 5px 18px #12384b08; overflow-wrap: anywhere; }
 .cw-block-title { display: flex; align-items: center; gap: 8px; color: #176766; font-size: 13px; font-weight: 600; margin-bottom: 10px; }
 .cw-block-title svg { width: 22px; height: 22px; flex-shrink: 0; }
@@ -306,6 +316,8 @@
 .cw-payslip-row-review { border-inline-start-color: #e0a052; background: #fffcf7; }
 .cw-payslip-row-missing { border-inline-start-color: #b9c6c8; }
 .cw-payslip-row-unknown { border-inline-start-color: #8e7cc3; background: #faf8fe; }
+.cw-payslip-row-ambiguous { border-inline-start-color: #c0503b; background: #fff8f6; }
+.cw-payslip-row-ambiguous .cw-payslip-badge { background: #fdeae5; color: #8f2f1f; }
 .cw-payslip-row-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
 .cw-payslip-row-head label { font-weight: 600; font-size: 14px; }
 .cw-payslip-badge { font-size: 11px; padding: 2px 9px; border-radius: 999px; background: #eef3f3; color: #3d5a5f; white-space: nowrap; }
@@ -319,6 +331,7 @@
 .cw-payslip-unit { color: var(--cw-muted); min-width: 40px; }
 .cw-payslip-unknown { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; margin-inline-start: auto; cursor: pointer; }
 .cw-payslip-help p { margin: 6px 0 0; font-size: 12px; }
+.cw-payslip-help p.cw-payslip-read { color: #1f4f4c; font-weight: 700; font-size: 14px; }
 .cw-payslip-source { color: #4b6468; }
 .cw-payslip-warning { color: #8a4b12; }
 .cw-payslip-warning::before { content: '⚠ '; }

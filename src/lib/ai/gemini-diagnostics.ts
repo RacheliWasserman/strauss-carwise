@@ -79,6 +79,7 @@ export function geminiDiagnostic(error: unknown) {
   else if (/model.*(?:not found|not supported|unsupported|not available)|(?:unsupported|unknown|invalid) model|not supported for generateContent/i.test(message)) detail = 'model_unavailable';
   else if (/billing|free tier|location.*not supported|country.*not supported/i.test(message)) detail = 'billing_or_region';
   else if (/Unknown name|Invalid JSON payload/i.test(message)) detail = 'invalid_payload_field';
+  else if (/too many states|response_?schema|response_?json_?schema|schema.*(?:not supported|unsupported|invalid|complex)/i.test(message)) detail = 'response_schema';
   else if (fieldGroups.size) detail = 'invalid_field';
   return { googleStatus, detail, envelopeShape, ...(fieldGroups.size ? { fields: [...fieldGroups].sort(), fieldCodes: [...fieldCodes].sort() } : {}) };
 }

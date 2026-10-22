@@ -6,6 +6,9 @@ import { useRouter } from 'next/navigation';
 import { getHebrewAuthError } from '@/lib/auth-errors';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
 import { firstIssue, registrationSchema } from '@/lib/identity/employee-identity';
+import { AuthAside } from './auth-visuals';
+import { BrandLockup } from './brand/brand-lockup';
+import { CarWiseCarLoader } from './ui/carwise-car-loader';
 
 type AuthFormProps = {
   mode: 'login' | 'register';
@@ -14,6 +17,25 @@ type AuthFormProps = {
 
 async function readJson(response: Response): Promise<{ status?: string; message?: string; error?: string }> {
   try { return await response.json(); } catch { return {}; }
+}
+
+/** A password field with a show/hide toggle. The value is always left to right; the label stays right to left. */
+export function PasswordField({ value, onChange, autoComplete }: { value: string; onChange: (value: string) => void; autoComplete: string }) {
+  const [visible, setVisible] = useState(false);
+  return <label>
+    <span>סיסמה</span>
+    <span className="auth-password">
+      <input type={visible ? 'text' : 'password'} name="password" autoComplete={autoComplete} dir="ltr" minLength={8}
+        autoCapitalize="none" autoCorrect="off" spellCheck={false} value={value} onChange={event => onChange(event.target.value)} required />
+      <button type="button" className="auth-reveal" onClick={() => setVisible(shown => !shown)}
+        aria-label={visible ? 'הסתרת הסיסמה' : 'הצגת הסיסמה'} aria-pressed={visible}>
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" /><circle cx="12" cy="12" r="3" />
+          {visible && <path d="M4 4l16 16" />}
+        </svg>
+      </button>
+    </span>
+  </label>;
 }
 
 export function AuthForm({ mode, initialError = '' }: AuthFormProps) {
@@ -76,7 +98,7 @@ export function AuthForm({ mode, initialError = '' }: AuthFormProps) {
   return (
     <main className="auth-shell" dir="rtl">
       <section className="auth-panel">
-        <div className="auth-mark">STRAUSS <span>CARWISE</span></div>
+        <BrandLockup tone="dark" size="sm" className="auth-panel-brand" />
         <p className="auth-eyebrow">גישה מאובטחת לעובדי שטראוס</p>
         <h1>{isRegister ? 'פתיחת חשבון' : 'ברוכים הבאים'}</h1>
         <p className="auth-intro">
@@ -85,7 +107,7 @@ export function AuthForm({ mode, initialError = '' }: AuthFormProps) {
             : 'מתחברים כדי להמשיך ליועץ הרכב וההטבות.'}
         </p>
 
-        <form onSubmit={submit} className="auth-form" noValidate={isRegister}>
+        <form onSubmit={submit} className="auth-form" noValidate={isRegister} aria-busy={pending}>
           {isRegister && <>
             <div className="auth-row">
               <label>
@@ -113,31 +135,21 @@ export function AuthForm({ mode, initialError = '' }: AuthFormProps) {
               name="email"
               autoComplete="email"
               dir="ltr"
+              autoCapitalize="none"
+              spellCheck={false}
               value={email}
               onChange={event => setEmail(event.target.value)}
               required
             />
           </label>
-          <label>
-            <span>סיסמה</span>
-            <input
-              type="password"
-              name="password"
-              autoComplete={isRegister ? 'new-password' : 'current-password'}
-              dir="ltr"
-              minLength={8}
-              value={password}
-              onChange={event => setPassword(event.target.value)}
-              required
-            />
-          </label>
+          <PasswordField value={password} onChange={setPassword} autoComplete={isRegister ? 'new-password' : 'current-password'} />
 
           {error && <p className="auth-alert auth-error" role="alert">{error}</p>}
           {message && <p className="auth-alert auth-success" role="status">{message}</p>}
 
           <button className="auth-submit" type="submit" disabled={pending}>
             {pending
-              ? 'רגע...'
+              ? <CarWiseCarLoader variant="auth" label={isRegister ? 'יוצרים את החשבון...' : 'מתחברים...'} />
               : isRegister
                 ? 'יצירת חשבון'
                 : 'התחברות'}
@@ -151,11 +163,7 @@ export function AuthForm({ mode, initialError = '' }: AuthFormProps) {
           </Link>
         </p>
       </section>
-      <aside className="auth-aside" aria-hidden="true">
-        <span className="auth-aside-label">STRAUSS BENEFITS</span>
-        <p>בחירה חכמה מתחילה<br />בנתונים הנכונים.</p>
-        <div className="auth-aside-rule" />
-      </aside>
+      <AuthAside />
     </main>
   );
 }

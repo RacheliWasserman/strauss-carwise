@@ -8,7 +8,7 @@ type Card = CatalogMessage['cards'][number];
 /** One comparison holds at most 6 cars (the calculation result block's limit). */
 export const MAX_COMPARE = 6;
 /** Text a card's select button sends. It is an ordinary employee message, validated by the server like typed text. */
-export const selectCardMessage = (card: Card) => `אני רוצה את ${card.display_name} (${card.id})`;
+export const selectCardMessage = (card: Pick<Card, 'id' | 'display_name'>) => `אני רוצה את ${card.display_name} (${card.id})`;
 /** Text the comparison bar sends for several chosen cars; the server resolves the catalog IDs. */
 export const compareCardsMessage = (cards: Card[]) => cards.length === 1 ? selectCardMessage(cards[0])
   : `אני רוצה להשוות את: ${cards.map(card => `${card.display_name} (${card.id})`).join(', ')}`;

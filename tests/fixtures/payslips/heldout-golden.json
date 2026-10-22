@@ -1,0 +1,15 @@
+{
+  "about": "HELD-OUT synthetic payslips (source/heldout-*.html, generate-heldout-fixtures.mjs), written AFTER the extraction rules and NOT used to design or tune them. Golden values are what each document states; null = the document does not state the field (correct answer: no value). Rules must not be tuned to these files; if they ever are, they stop being held out and new ones are needed.",
+  "heldout-bilingual": {
+    "what": "English-first bilingual table, earnings and deductions side by side, employee/employer % table, gift, car benefit, gross total.",
+    "fields": { "base_salary": 13750, "commissions": 1420, "bonus": 600, "employee_pension_percent": 6.5, "employee_study_fund_percent": null, "tax_credit_points": 2.75, "current_participation": 450 }
+  },
+  "heldout-colon-list": {
+    "what": "One 'label: value' per line, no tables; current and cumulative commissions, a premium without stated recurrence (correct: suggested for review), employee/employer rates for גמל, study fund only as an amount.",
+    "fields": { "base_salary": 11300, "commissions": 1300, "bonus": 900, "employee_pension_percent": 6, "employee_study_fund_percent": null, "tax_credit_points": 2.25, "current_participation": 380 }
+  },
+  "heldout-erp": {
+    "what": "Dense ERP print with codes, quantity/rate/amount, abbreviated labels (ש. יסוד, עמ' מכירה, פנס' עובד, השתת' רכב, נק' זיכוי as a column header), a quarterly bonus (not monthly), car benefit and its gross-up.",
+    "fields": { "base_salary": 17000, "commissions": 2050, "bonus": null, "employee_pension_percent": 7, "employee_study_fund_percent": 2.5, "tax_credit_points": 3.25, "current_participation": 520 }
+  }
+}

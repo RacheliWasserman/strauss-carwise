@@ -1,0 +1,43 @@
+/* CarWiseCarLoader: a small car drives along a fixed-size road, turns around at the end and drives back.
+   The road has a fixed size per variant, so the surrounding layout never moves. Colours are tokens so the car
+   also reads on dark buttons. */
+.cw-drive {
+  --cw-drive-travel: 62px; --cw-car-body: #137c77; --cw-car-glass: #dff3ef; --cw-car-light: #e88660;
+  --cw-car-wheel: #173b43; --cw-car-rim: #f8faf9; --cw-car-road: #a6dcd4;
+  position: relative; display: inline-block; flex: 0 0 auto; width: 104px; height: 30px; overflow: hidden; direction: ltr; vertical-align: middle;
+}
+.cw-drive-road { position: absolute; inset-inline: 2px; bottom: 3px; height: 2px; border-radius: 2px;
+  background: repeating-linear-gradient(90deg, var(--cw-car-road) 0 9px, transparent 9px 15px); }
+.cw-drive-car { position: absolute; left: 0; bottom: 4px; width: 40px; height: 22px; animation: cw-drive-x 3.4s ease-in-out infinite; }
+.cw-drive-turn { display: block; width: 100%; height: 100%; transform-origin: 50% 50%; animation: cw-drive-turn 3.4s linear infinite; }
+.cw-drive .cw-drive-turn svg { display: block; width: 100%; height: 100%; max-width: none; overflow: visible; animation: cw-drive-bob .45s ease-in-out infinite alternate; }
+.cw-drive-body { fill: var(--cw-car-body); }
+.cw-drive-glass { fill: var(--cw-car-glass); }
+.cw-drive-light { fill: var(--cw-car-light); }
+.cw-drive-wheel circle { fill: var(--cw-car-wheel); stroke: var(--cw-car-rim); stroke-width: 1.2; }
+.cw-drive-wheel path { stroke: #cfe3df; stroke-width: 1.1; stroke-linecap: round; }
+.cw-drive-sm { --cw-drive-travel: 28px; width: 54px; height: 18px; }
+.cw-drive-sm .cw-drive-car { width: 24px; height: 13px; bottom: 3px; }
+.cw-drive-sm .cw-drive-road { bottom: 2px; height: 1.5px; }
+.cw-drive-lg { --cw-drive-travel: 104px; width: 168px; height: 44px; }
+.cw-drive-lg .cw-drive-car { width: 60px; height: 33px; bottom: 6px; }
+.cw-drive-lg .cw-drive-road { bottom: 4px; height: 3px; }
+@keyframes cw-drive-x { 0%, 4% { transform: translateX(0); } 46%, 54% { transform: translateX(var(--cw-drive-travel)); } 96%, 100% { transform: translateX(0); } }
+@keyframes cw-drive-turn { 0%, 47% { transform: scaleX(1); } 50% { transform: scaleX(0.15); } 53%, 97% { transform: scaleX(-1); } 100% { transform: scaleX(1); } }
+@keyframes cw-drive-bob { from { transform: translateY(0); } to { transform: translateY(-1px); } }
+
+.cw-loader { color: #4b776b; font-size: 13px; }
+.cw-loader-text { font-weight: 600; }
+.cw-loader-row { display: flex; align-items: center; gap: 12px; }
+.cw-loader-stack { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; text-align: center; padding: 18px; }
+.cw-loader-stack .cw-loader-text { font-size: 14px; color: #31605a; }
+.cw-loader-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; color: inherit; font-size: inherit; }
+.cw-loader-button .cw-loader-text { font-weight: inherit; }
+.cw-loader-page { flex: 1; min-height: 50vh; }
+.cw-loader-chat { padding: 12px 0 24px; font-size: 12px; }
+/* On dark buttons the car is light. */
+.cw-on-dark .cw-drive, .auth-submit .cw-drive { --cw-car-body: #e1f4e9; --cw-car-glass: #2a7a6f; --cw-car-wheel: #0b2f2b; --cw-car-rim: #cfe9e2; --cw-car-road: #8fd3c3; }
+
+@media (prefers-reduced-motion: reduce) {
+  .cw-drive-car, .cw-drive-turn, .cw-drive .cw-drive-turn svg { animation: none; transform: none; }
+}

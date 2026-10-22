@@ -769,11 +769,13 @@ export async function advanceFinancialFlow(input: FinancialInput, deps: Financia
   const waiverOnly = input.waiver && !input.vehiclesNamedNow;
   let selected = waiverOnly ? [] : state.selectedVehicleIds ?? [];
   if (!selected.length && !input.waiver) {
+    // Up to three cars on screen answer "how much in net?" directly (existing flow). With more, the employee chooses;
+    // "all of them" is offered only when they fit in one comparison, so a longer list is never cut down silently.
     if (shown.length && shown.length <= 3) selected = shown.map(vehicle => vehicle.id);
     else if (shown.length) {
       state.pendingQuestion = 'vehicle_selection';
-      return say(`${savedText}לאילו רכבים לחשב את הנטו? אפשר לבחור אחד או כמה.`, {
-        actions: [{ label: 'כל הרכבים שהוצגו', body: 'חישוב נטו לכל הרכבים שהוצגו', primary: true },
+      return say(`${savedText}לאילו רכבים לחשב את הנטו? אפשר לבחור אחד או כמה${shown.length > 6 ? ' (עד 6)' : ''}.`, {
+        actions: [...(shown.length <= 6 ? [{ label: 'כל הרכבים שהוצגו', body: 'חישוב נטו לכל הרכבים שהוצגו', primary: true }] : []),
           ...shown.slice(0, 6).map(vehicle => ({ label: vehicle.name.slice(0, 60), body: `חישוב נטו עבור ${vehicle.name} (${vehicle.id})`.slice(0, 200) }))].slice(0, 8)
       });
     } else {
@@ -837,7 +839,9 @@ export async function advanceFinancialFlow(input: FinancialInput, deps: Financia
     return say(`${savedText}כבר היום אין לך רכב צמוד, אז ויתור לא ישנה את הנטו שלך. רוצה לבדוק רכב מהקטלוג?`);
   }
   if (!scenarios.length) {
-    state.selectedVehicleIds = [];
+    // The selected car is the one the employee has today: no vehicle change and no difference to show. The choice is
+    // kept, and the next car the employee names is ADDED to it for a real comparison.
+    state.pendingQuestion = 'comparison';
     return say(`${savedText}זה הרכב שכבר יש לך היום, אז אין שינוי בנטו. לאיזה רכב אחר להשוות?`);
   }
 

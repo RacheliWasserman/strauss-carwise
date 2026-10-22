@@ -78,11 +78,19 @@ function socialTax(
   );
 }
 
+/**
+ * The fields eligibility reads (types only: the rule itself is unchanged). Every full Employee, Choice, rules and
+ * Occupation still fits, and the vehicle catalog can ask the same rule without a calculation-ready car.
+ */
+export type EligibilityChoice =
+  | { type: 'car'; car: Pick<Car, 'מזהה' | 'קבוצה' | 'עלות חודשית לחברה (דמה)'> }
+  | { type: 'waiver' };
+
 export function eligibility(
-  employee: Employee,
-  choice: Choice,
-  calculationRules: CalculationRules,
-  occupation: Occupation
+  employee: Pick<Employee, 'ילדים עד 23'>,
+  choice: EligibilityChoice,
+  calculationRules: Pick<CalculationRules, 'familyTrack' | 'budgets' | 'groupOrder'>,
+  occupation: Pick<Occupation, 'קבוצת זכאות' | 'מותר לוותר'>
 ): Eligibility {
   if (choice.type === 'waiver') {
     return occupation['מותר לוותר'] === 'כן'

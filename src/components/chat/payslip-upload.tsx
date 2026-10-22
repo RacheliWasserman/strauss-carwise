@@ -2,19 +2,19 @@
 
 import { useEffect, useRef, useState } from 'react';
 import {
-  encodePayslipReview, extractionResponseSchema, PAYSLIP_ACCEPT, PAYSLIP_FIELD_ORDER, PAYSLIP_FIELDS, PAYSLIP_LIMITS,
-  PAYSLIP_REVIEW_KIND, VISION_CONSENT_TEXT, VISION_CONSENT_VERSION, type ExtractionResponse, type PayslipField, type PayslipReview
+  encodePayslipReview, extractionResponseSchema, PAYSLIP_ACCEPT, PAYSLIP_FIELD_ORDER, PAYSLIP_LIMITS, VISION_CONSENT_TEXT, VISION_CONSENT_VERSION
 } from '@/lib/payslip/payslip-contract';
+import { buildPayslipReview, initialReviewRows, reviewRowError, type ExtractedResult as Extracted, type ReviewRows } from '@/lib/payslip/payslip-review-form';
 import { ChatIcon } from './chat-icon';
+import { CarWiseCarLoader } from '../ui/carwise-car-loader';
+import { PayslipReviewRow } from './payslip-review-row';
 
-type Extracted = Extract<ExtractionResponse, { status: 'extracted' }>;
 type Stage =
   | { kind: 'pick' }
   | { kind: 'reading'; vision: boolean }
   | { kind: 'consent'; reason: 'image' | 'scanned_pdf' | 'no_fields'; available: boolean }
   | { kind: 'review'; result: Extracted | null }
   | { kind: 'error'; message: string; ref?: string; retry?: boolean };
-type Row = { input: string; unknown: boolean };
 
 const REASON: Record<'image' | 'scanned_pdf' | 'no_fields', string> = {
   image: 'זו תמונה, ולכן אפשר לקרוא אותה רק בקריאה חזותית.',
@@ -22,22 +22,6 @@ const REASON: Record<'image' | 'scanned_pdf' | 'no_fields', string> = {
   no_fields: 'לא מצאתי בטקסט של הקובץ נתוני שכר. קריאה חזותית עשויה לזהות אותם.'
 };
 const METHOD: Record<Extracted['method'], string> = { pdf_text: 'נקרא מקובץ PDF דיגיטלי, אצלנו בלבד', docx: 'נקרא מקובץ Word, אצלנו בלבד', vision: 'נקרא בקריאה חזותית (Google Gemini)' };
-
-/** "15,000" / "6.5%" / "₪ 900" → a number; empty → null; anything else → NaN. */
-function parseInput(text: string) {
-  const clean = text.replace(/[,\s₪%]/g, '');
-  if (!clean) return null;
-  return /^\d+(?:\.\d+)?$/.test(clean) ? Number(clean) : NaN;
-}
-function rowError(field: PayslipField, row: Row) {
-  if (row.unknown) return null;
-  const value = parseInput(row.input);
-  if (value === null) return null;
-  if (Number.isNaN(value)) return 'יש להזין מספר.';
-  if (value > PAYSLIP_FIELDS[field].max) return 'הערך גבוה מדי.';
-  if (field === 'base_salary' && value < 1000) return 'יש להזין שכר חודשי מלא בשקלים.';
-  return null;
-}
 
 export function PayslipUpload({ conversationId, busy, onSubmit, onClose }: {
   conversationId: string; busy: boolean; onSubmit: (body: string) => void; onClose: () => void;
@@ -47,7 +31,7 @@ export function PayslipUpload({ conversationId, busy, onSubmit, onClose }: {
   const [file, setFile] = useState<File | null>(null);
   const [stage, setStage] = useState<Stage>({ kind: 'pick' });
   const [consent, setConsent] = useState(false);
-  const [rows, setRows] = useState<Record<PayslipField, Row>>(() => Object.fromEntries(PAYSLIP_FIELD_ORDER.map(field => [field, { input: '', unknown: false }])) as Record<PayslipField, Row>);
+  const [rows, setRows] = useState<ReviewRows>(() => initialReviewRows(null));
   const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -59,10 +43,7 @@ export function PayslipUpload({ conversationId, busy, onSubmit, onClose }: {
   const close = () => { request.current?.abort(); setFile(null); onClose(); };
 
   const toReview = (result: Extracted | null) => {
-    setRows(Object.fromEntries(PAYSLIP_FIELD_ORDER.map(field => {
-      const value = result?.fields.find(item => item.field === field)?.value;
-      return [field, { input: value === null || value === undefined ? '' : String(value), unknown: false }];
-    })) as Record<PayslipField, Row>);
+    setRows(initialReviewRows(result));
     setFormError(null);
     setStage({ kind: 'review', result });
   };
@@ -79,6 +60,8 @@ export function PayslipUpload({ conversationId, busy, onSubmit, onClose }: {
       if (withConsent) form.append('consent', VISION_CONSENT_VERSION);
       const response = await fetch(`/api/conversations/${conversationId}/payslip`, { method: 'POST', body: form, credentials: 'same-origin', cache: 'no-store', signal: controller.signal });
       const data: unknown = await response.json().catch(() => null);
+      // A newer upload replaced this one: its answer must not overwrite the newer review.
+      if (request.current !== controller) return;
       if (!response.ok) {
         const record = data && typeof data === 'object' ? data as Record<string, unknown> : {};
         const message = typeof record.error === 'string' ? record.error : 'לא הצלחתי לעבד את הקובץ כרגע.';
@@ -107,20 +90,10 @@ export function PayslipUpload({ conversationId, busy, onSubmit, onClose }: {
   const submit = () => {
     if (busy) { setFormError('רגע, CarWise עדיין עונה להודעה הקודמת. אפשר לנסות שוב בעוד רגע.'); return; }
     const result = stage.kind === 'review' ? stage.result : null;
-    if (PAYSLIP_FIELD_ORDER.some(field => rowError(field, rows[field]))) { setFormError('יש לתקן את השדות המסומנים.'); return; }
-    const values: PayslipReview['values'] = {};
-    for (const field of PAYSLIP_FIELD_ORDER) {
-      const row = rows[field];
-      const value = parseInput(row.input);
-      if (row.unknown) values[field] = 'unknown';
-      else if (value !== null && !Number.isNaN(value)) values[field] = value;
-    }
-    if (!Object.keys(values).length) { setFormError('יש למלא לפחות ערך אחד או לסמן "לא ידוע".'); return; }
-    const extracted = Object.fromEntries(PAYSLIP_FIELD_ORDER.map(field => [field, result?.fields.find(item => item.field === field)?.value ?? null])) as PayslipReview['extracted'];
-    const body = encodePayslipReview(result
-      ? { kind: PAYSLIP_REVIEW_KIND, method: result.method, extracted, values, token: result.token, expiresAt: result.expiresAt }
-      : { kind: PAYSLIP_REVIEW_KIND, method: 'manual', extracted, values });
-    onSubmit(body);
+    if (PAYSLIP_FIELD_ORDER.some(field => reviewRowError(field, rows[field]))) { setFormError('יש לתקן את השדות המסומנים.'); return; }
+    const review = buildPayslipReview(result, rows);
+    if (!review) { setFormError('יש למלא לפחות ערך אחד או לסמן "לא ידוע".'); return; }
+    onSubmit(encodePayslipReview(review));
     close();
   };
 
@@ -147,8 +120,8 @@ export function PayslipUpload({ conversationId, busy, onSubmit, onClose }: {
       <button type="button" className="cw-payslip-link" onClick={() => toReview(null)}>הזנה ידנית במקום העלאה</button>
     </div>}
 
-    {stage.kind === 'reading' && <div className="cw-payslip-body cw-payslip-center" role="status">
-      <i className="cw-spinner" /><p>{stage.vision ? 'התלוש נקרא בקריאה חזותית…' : 'הקובץ נקרא…'}</p>
+    {stage.kind === 'reading' && <div className="cw-payslip-body cw-payslip-center">
+      <CarWiseCarLoader variant="payslip" /><p className="cw-payslip-reading-note">{stage.vision ? 'קריאה חזותית של התלוש. זה עשוי לקחת כמה שניות.' : 'הקובץ נקרא אצלנו, בלי שירות חיצוני.'}</p>
     </div>}
 
     {stage.kind === 'consent' && <div className="cw-payslip-body">
@@ -194,38 +167,8 @@ export function PayslipUpload({ conversationId, busy, onSubmit, onClose }: {
       {stage.result ? <p className="cw-payslip-lead">{METHOD[stage.result.method]}. כדאי לבדוק כל ערך, לתקן אם צריך, או לסמן "לא ידוע". שדה ריק יישאל בהמשך השיחה.</p>
         : <p className="cw-payslip-lead">אפשר להזין את הערכים כפי שהם מופיעים בתלוש. שדה ריק יישאל בהמשך השיחה.</p>}
       {stage.result?.warnings.map(warning => <p key={warning} className="cw-payslip-note">{warning}</p>)}
-      <ul className="cw-payslip-rows">{PAYSLIP_FIELD_ORDER.map(field => {
-        const spec = PAYSLIP_FIELDS[field];
-        const found = stage.result?.fields.find(item => item.field === field);
-        const row = rows[field];
-        const error = rowError(field, row);
-        const value = parseInput(row.input);
-        const edited = Boolean(stage.result) && !row.unknown && value !== null && !Number.isNaN(value) && value !== (found?.value ?? null);
-        const state = !stage.result ? 'manual' : row.unknown ? 'unknown' : found?.value === null || found?.value === undefined ? 'missing' : found.confidence === 'high' ? 'found' : 'review';
-        const badge = { manual: '', unknown: 'לא ידוע', missing: 'לא נמצא', found: 'זוהה בתלוש', review: 'לבדיקה' }[state];
-        const id = `cw-payslip-${field}`;
-        return <li key={field} className={`cw-payslip-row cw-payslip-row-${state}`}>
-          <div className="cw-payslip-row-head">
-            <label htmlFor={id}>{spec.label}</label>
-            {badge && <span className="cw-payslip-badge">{edited ? (found?.value === null || found?.value === undefined ? 'הוזן על ידך' : 'תוקן על ידך') : badge}</span>}
-          </div>
-          <div className="cw-payslip-field">
-            <input id={id} inputMode="decimal" dir="ltr" autoComplete="off" value={row.unknown ? '' : row.input} disabled={row.unknown}
-              placeholder={row.unknown ? 'לא ידוע' : 'ריק'} aria-invalid={Boolean(error)} aria-describedby={`${id}-help`}
-              onChange={event => setRows(current => ({ ...current, [field]: { ...current[field], input: event.target.value } }))} />
-            <span className="cw-payslip-unit">{spec.unit}</span>
-            <label className="cw-payslip-unknown">
-              <input type="checkbox" checked={row.unknown} onChange={event => setRows(current => ({ ...current, [field]: { ...current[field], unknown: event.target.checked } }))} />
-              <span>לא ידוע</span>
-            </label>
-          </div>
-          <div id={`${id}-help`} className="cw-payslip-help">
-            {error && <p className="cw-payslip-row-error">{error}</p>}
-            {found?.evidence && <p className="cw-payslip-source">מקור: {found.page ? `עמוד ${found.page} · ` : ''}<bdi>{found.evidence}</bdi></p>}
-            {found?.warnings.map(warning => <p key={warning} className="cw-payslip-warning">{warning}</p>)}
-          </div>
-        </li>;
-      })}</ul>
+      <ul className="cw-payslip-rows">{PAYSLIP_FIELD_ORDER.map(field => <PayslipReviewRow key={field} field={field} result={stage.result} row={rows[field]}
+        onChange={patch => setRows(current => ({ ...current, [field]: { ...current[field], ...patch } }))} />)}</ul>
       {formError && <p className="cw-payslip-error" role="alert">{formError}</p>}
       <p className="cw-payslip-note">הערכים ייכנסו לסיכום לאישור בצ׳אט. שום דבר לא יישמר בפרופיל ולא ישמש לחישוב לפני אישור הסיכום.</p>
       <div className="cw-payslip-actions">

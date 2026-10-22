@@ -46,7 +46,10 @@ export function finalizeFields(fields: ExtractedField[]): ExtractedField[] {
   });
 }
 
-export type ExtractInput = { bytes: Uint8Array; userId: string; conversationId: string; consent: boolean; ref?: string };
+/** Worth a review screen: a value, or a field the document shows with conflicting values (the employee decides). */
+const reviewable = (fields: ExtractedField[]) => fields.some(item => item.value !== null || item.ambiguous);
+
+export type ExtractInput ={ bytes: Uint8Array; userId: string; conversationId: string; consent: boolean; ref?: string };
 export type ExtractDependencies = { vision?: VisionCall; visionEnabled?: () => boolean; now?: () => number; visionOptions?: VisionOptions };
 /** Safe model name for logs (configuration value, never a key). */
 const safeModelName = (name: string) => /^[a-z0-9][a-z0-9.\-]{0,60}$/i.test(name) ? name : 'unrecognized';
@@ -79,14 +82,14 @@ export async function extractPayslip(input: ExtractInput, deps: ExtractDependenc
   if (type === 'docx') {
     const lines = await withDeadline(Promise.resolve().then(() => extractDocxLines(bytes)), LOCAL_TIMEOUT_MS).catch(fileError);
     const parsed = parsePayslipLines(lines);
-    if (!parsed.found) throw new PayslipError(parsed.looksLikePayslip ? 'no_fields' : 'not_payslip');
+    if (!reviewable(parsed.fields)) throw new PayslipError(parsed.looksLikePayslip ? 'no_fields' : 'not_payslip');
     return done('docx', parsed.fields, parsed.warnings);
   } else if (type === 'pdf') {
     const text = await withDeadline(extractPdfText(bytes), LOCAL_TIMEOUT_MS).catch(fileError);
     const scanned = looksScanned(text);
     if (!scanned) {
       const parsed = parsePayslipLines(text.lines);
-      if (parsed.found) return done('pdf_text', parsed.fields, parsed.warnings);
+      if (reviewable(parsed.fields)) return done('pdf_text', parsed.fields, parsed.warnings);
     }
     visual = { reason: scanned ? 'scanned_pdf' : 'no_fields', document: async () => ({ document: { data: bytes, mimeType: 'application/pdf' }, warnings: [] }) };
   } else {
@@ -112,7 +115,7 @@ export async function extractPayslip(input: ExtractInput, deps: ExtractDependenc
   }
   console.info('[carwise.payslip.vision]', { ref: input.ref ?? null, outcome: 'read', attempts: response.attempts, model: safeModelName(visionModel()) });
   const fields = fieldsFromVision(response);
-  if (!fields.some(item => item.value !== null)) throw new PayslipError(response.is_payslip ? 'no_fields' : 'not_payslip');
+  if (!reviewable(fields)) throw new PayslipError(response.is_payslip ? 'no_fields' : 'not_payslip');
   return done('vision', fields, ['הנתונים נקראו בקריאה חזותית ועשויים לכלול טעויות. כדאי לבדוק כל ערך מול התלוש.', ...prepared.warnings]);
 }
 

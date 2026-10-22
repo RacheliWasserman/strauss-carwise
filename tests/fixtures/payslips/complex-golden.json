@@ -1,0 +1,20 @@
+{
+  "about": "Golden results for the synthetic complex payslip (07/2026, 'דוגמה פיקטיבית בלבד'). Verified by reading the supplied fixture; all data is fictional. complex-rtl.* is the document as printed; complex-reversed.* is the same document from a generator that stores each phrase's words in reverse order.",
+  "fixtures": { "pdf": ["complex-rtl.pdf", "complex-reversed.pdf"], "image": ["complex-rtl.png", "complex-reversed.png"] },
+  "fields": {
+    "base_salary": { "value": 18500, "label": "שכר יסוד", "printed": "18,500.00", "section": "רכיבי תשלום ושווי למס", "page": 1 },
+    "commissions": { "value": 2300, "label": "עמלות מכירה חודשיות", "printed": "2,300.00", "section": "רכיבי תשלום ושווי למס", "page": 1 },
+    "bonus": { "value": 1000, "label": "בונוס חודשי קבוע", "printed": "1,000.00", "section": "רכיבי תשלום ושווי למס", "page": 1 },
+    "employee_pension_percent": { "value": 6, "label": "קרן פנסיה", "printed": "6.00", "section": "הפרשות לקופות גמל ופיצויים · עובד %", "page": 1 },
+    "employee_study_fund_percent": { "value": 2.5, "label": "קרן השתלמות", "printed": "2.50", "section": "הפרשות לקופות גמל ופיצויים · עובד %", "page": 1 },
+    "tax_credit_points": { "value": 2.75, "label": "נקודות זיכוי במס", "printed": "2.75", "section": "נתונים אישיים ונקודות זיכוי", "page": 1 },
+    "current_participation": { "value": 350, "label": "השתתפות עובד ברכב", "printed": "350.00", "section": "ניכויי חובה וניכויי רשות", "page": 1 }
+  },
+  "distractors": {
+    "overtime 125%": 1750, "shift premium": 1200, "one-time grant (מענק חד־פעמי)": 3500, "travel reimbursement": 420,
+    "car benefit (שווי שימוש ברכב)": 3100, "car gross-up (גילום מס רכב)": 0, "cash payments total": 28670, "taxable gross incl. car": 31350,
+    "employer pension %": 6.5, "severance %": 6, "employer study fund %": 7.5, "employee pension deduction ₪": 1110, "employee study fund deduction ₪": 462.5,
+    "cumulative taxable salary": 193420, "cumulative income tax": 25700, "vacation balance": 12.5, "sick balance": 18.75, "recuperation balance": 2.92,
+    "deductions incl. car": 8752.5, "net pay": 19917.5
+  }
+}

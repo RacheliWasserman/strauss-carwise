@@ -20,7 +20,22 @@ const paths = {
   down: 'M12 5v14m-6-6 6 6 6-6',
   route: 'M6 20h9a5 5 0 0 0 0-10H9a4 4 0 0 1 0-8h9M6 17v6M18 0v5',
   document: 'M14 3H6v18h12V7zm0 0v4h4M9 12h6m-6 4h6',
-  upload: 'M12 16V4m-5 5 5-5 5 5M4 16v4h16v-4'
+  upload: 'M12 16V4m-5 5 5-5 5 5M4 16v4h16v-4',
+  // Catalog (Lucide-style strokes, same 24px grid).
+  zap: 'M13 2 3 14h9l-1 8 10-12h-9l1-8z',
+  leaf: 'M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10ZM2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12',
+  plug: 'M12 22v-5M9 8V2m6 6V2m3 6v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8z',
+  fuel: 'M3 22h12M4 9h10m0 13V4a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v18m10-9h2a2 2 0 0 1 2 2v2a2 2 0 0 0 4 0V9.8a2 2 0 0 0-.6-1.4L18 5',
+  layers: 'm12 2 10 5-10 5L2 7zm-10 10 10 5 10-5M2 17l10 5 10-5',
+  factory: 'M2 20h20M4 20V10l6 4v-4l6 4V4h4v16M8 17h2m4 0h2',
+  search: 'm21 21-4.3-4.3M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14',
+  image: 'M3 3h18v18H3zm5.5 7a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3M21 15l-5-5L5 21',
+  users: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2m7-10a4 4 0 1 0 0-8 4 4 0 0 0 0 8m13 10v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8',
+  info: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20m0-6v-4m0-4h.01',
+  forward: 'M19 12H5m7 7-7-7 7-7',
+  calculator: 'M5 2h14v20H5zm3 4h8M8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h4',
+  alert: 'M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0',
+  reset: 'M3 12a9 9 0 1 0 3-6.7L3 8m0-5v5h5'
 };
 export type ChatIconName = keyof typeof paths;
 export function ChatIcon({ name, className = '', style }: { name: ChatIconName; className?: string; style?: CSSProperties }) {

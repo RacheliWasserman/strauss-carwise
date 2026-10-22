@@ -7,10 +7,13 @@ import { decodeCatalogMessage,shouldRenderCatalog } from '@/lib/catalog-message'
 import { CatalogCards } from './catalog-cards';
 import { ApprovalSummary, CalculationResults, MessageActions } from './advisor-blocks';
 import { ThinkingCar } from './thinking-car';
+import { ProgressiveText } from './progressive-text';
+import { CarWiseCar } from '../ui/carwise-car-loader';
 import { decodeRepAnswer, formatAnswerValue, REQUESTABLE_FIELDS, useAnswerMessage } from '@/lib/representative-answer';
 import { decodePayslipReview, describePayslipReview } from '@/lib/payslip/payslip-contract';
 
-function Message({ message, actionsEnabled, canUseAnswer, onAction, onPayslip }: {
+function Message({ message, animate, actionsEnabled, canUseAnswer, onAction, onPayslip }: {
+  animate: boolean;
   message: ChatMessage; actionsEnabled: boolean; canUseAnswer: boolean; onAction: (body: string) => void; onPayslip?: () => void;
 }) {
   const [copyStatus, setCopyStatus] = useState('');
@@ -27,7 +30,7 @@ function Message({ message, actionsEnabled, canUseAnswer, onAction, onPayslip }:
   return <article className={`cw-message cw-message-${message.sender_type}`} aria-label={employee ? 'ההודעה שלך' : `הודעה מאת ${label}`}>
     <div className="cw-message-avatar">{employee ? <ChatIcon name="user" /> : representative ? <ChatIcon name="chat" /> : <CarWiseMark small />}</div>
     <div className="cw-message-content"><div className="cw-message-byline"><strong>{label}</strong><time dateTime={message.created_at}>{new Intl.DateTimeFormat('he-IL', { hour: '2-digit', minute: '2-digit' }).format(new Date(message.created_at))}</time>{representative && <span>מענה אנושי</span>}</div>
-      <div className="cw-message-bubble" dir="auto">{payslip && <span className="cw-payslip-tag"><ChatIcon name="document" />{payslip.method === 'manual' ? 'טופס פרטי שכר' : 'נבדק מתוך תלוש השכר'}</span>}{text}</div>
+      <div className="cw-message-bubble" dir="auto">{payslip && <span className="cw-payslip-tag"><ChatIcon name="document" />{payslip.method === 'manual' ? 'טופס פרטי שכר' : 'נבדק מתוך תלוש השכר'}</span>}{message.sender_type === 'assistant' ? <ProgressiveText text={text} animate={animate} /> : text}</div>
       {catalog && <CatalogCards message={catalog} onSelect={actionsEnabled ? onAction : undefined} />}
       {catalog?.approval && <ApprovalSummary approval={catalog.approval} />}
       {catalog?.calculation && <CalculationResults calculation={catalog.calculation} />}
@@ -51,6 +54,7 @@ function Message({ message, actionsEnabled, canUseAnswer, onAction, onPayslip }:
 }
 
 type Props = {
+  revealIds?: ReadonlySet<string>;
   messages: ChatMessage[]; loading: boolean; pending: OutgoingMessage | null;
   sending: boolean; hasOlder: boolean; olderLoading: boolean; error: string | null;
   onOlder: () => void; onRetry: () => void;
@@ -98,10 +102,10 @@ export function ChatThread(props: Props) {
         {props.loading && <div className="cw-thread-skeleton" role="status" aria-label="השיחה השמורה בטעינה"><i /><i /><i /></div>}
         {props.error && <div className="cw-thread-error" role="alert"><p>{props.error}</p><button onClick={props.onRetry}><ChatIcon name="retry" />טעינה מחדש</button></div>}
         <div role="log" aria-label="הודעות בשיחה" aria-live="polite" aria-relevant="additions text" aria-busy={props.loading}>
-          {props.messages.map(message => <Message key={message.id} message={message} onAction={props.onAction} onPayslip={props.onPayslip}
+          {props.messages.map(message => <Message key={message.id} message={message} animate={props.revealIds?.has(message.id) ?? false} onAction={props.onAction} onPayslip={props.onPayslip}
             actionsEnabled={!props.actionsDisabled && message.id === lastId && message.sender_type === 'assistant'}
             canUseAnswer={!props.actionsDisabled} />)}
-          {props.pending && <article className="cw-message cw-message-employee cw-message-unsaved"><div className="cw-message-avatar"><ChatIcon name="user" /></div><div className="cw-message-content"><div className="cw-message-byline"><strong>אני</strong></div><div className="cw-message-bubble" dir="auto">{(() => { const review = decodePayslipReview(props.pending.body); return review ? describePayslipReview(review) : props.pending.body; })()}</div><span className="cw-pending-status" role="status">{props.sending ? <><i className="cw-spinner" />ההודעה נשמרת…</> : <><ChatIcon name="clock" />השמירה עדיין לא אושרה · אפשר לנסות שוב למטה</>}</span></div></article>}
+          {props.pending && <article className="cw-message cw-message-employee cw-message-unsaved"><div className="cw-message-avatar"><ChatIcon name="user" /></div><div className="cw-message-content"><div className="cw-message-byline"><strong>אני</strong></div><div className="cw-message-bubble" dir="auto">{(() => { const review = decodePayslipReview(props.pending.body); return review ? describePayslipReview(review) : props.pending.body; })()}</div><span className="cw-pending-status" role="status">{props.sending ? <><CarWiseCar size="sm" />ההודעה נשמרת…</> : <><ChatIcon name="clock" />השמירה עדיין לא אושרה · אפשר לנסות שוב למטה</>}</span></div></article>}
         </div>
         {props.thinking && <ThinkingCar />}
         {props.aiError && <div className="cw-ai-error" role="alert"><p>{props.aiError}</p>{props.aiNeedsLogin ? <a href="/login">להתחברות מחדש</a> : <button onClick={props.onRetryAi} disabled={props.thinking || Boolean(props.pending) || props.loading}><ChatIcon name="retry" />ניסיון חוזר למענה</button>}</div>}

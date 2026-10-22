@@ -3,6 +3,9 @@
 import { useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { firstIssue, identityInputSchema } from '@/lib/identity/employee-identity';
+import { AuthAside } from './auth-visuals';
+import { BrandLockup } from './brand/brand-lockup';
+import { CarWiseCarLoader } from './ui/carwise-car-loader';
 
 /** One-time completion of name and national ID for accounts created before these fields were required. */
 export function ProfileCompletionForm() {
@@ -40,11 +43,11 @@ export function ProfileCompletionForm() {
 
   return <main className="auth-shell" dir="rtl">
     <section className="auth-panel">
-      <div className="auth-mark">STRAUSS <span>CARWISE</span></div>
+      <BrandLockup tone="dark" size="sm" className="auth-panel-brand" />
       <p className="auth-eyebrow">עוד צעד קטן</p>
       <h1>השלמת פרטים</h1>
       <p className="auth-intro">כדי שהיועץ יפנה אליכם בשם ולא ישאל עליו שוב, יש להשלים שם ומספר תעודת זהות. זה נעשה פעם אחת בלבד.</p>
-      <form onSubmit={submit} className="auth-form" noValidate>
+      <form onSubmit={submit} className="auth-form" noValidate aria-busy={pending}>
         <div className="auth-row">
           <label><span>שם פרטי</span>
             <input type="text" autoComplete="given-name" dir="auto" maxLength={60} value={firstName} onChange={event => setFirstName(event.target.value)} required /></label>
@@ -57,13 +60,9 @@ export function ProfileCompletionForm() {
           <small id="completion-id-help" className="auth-help">9 ספרות, כולל ספרת ביקורת. המספר לא מוצג לנציגים ולא נשלח למערכות בינה מלאכותית.</small>
         </label>
         {error && <p className="auth-alert auth-error" role="alert">{error}</p>}
-        <button className="auth-submit" type="submit" disabled={pending}>{pending ? 'רגע...' : 'שמירה והמשך'}</button>
+        <button className="auth-submit" type="submit" disabled={pending}>{pending ? <CarWiseCarLoader variant="auth" label="שומרים את הפרטים..." /> : 'שמירה והמשך'}</button>
       </form>
     </section>
-    <aside className="auth-aside" aria-hidden="true">
-      <span className="auth-aside-label">STRAUSS BENEFITS</span>
-      <p>כמעט<br />מתחילים.</p>
-      <div className="auth-aside-rule" />
-    </aside>
+    <AuthAside headline="כמעט מתחילים." />
   </main>;
 }

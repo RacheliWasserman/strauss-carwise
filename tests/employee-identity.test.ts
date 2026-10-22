@@ -73,17 +73,17 @@ describe('AI thinking indicator: the CarWise car', () => {
   it('renders an accessible status with text, a decorative car and no dots', () => {
     vi.stubGlobal('React', React);
     const html = renderToStaticMarkup(React.createElement(ThinkingCar));
-    expect(THINKING_TEXT).toBe('CarWise בדרך עם תשובה...');
+    expect(THINKING_TEXT).toBe('CarWise בודק את הנתונים...');
     expect(html).toContain('role="status"');expect(html).toContain(THINKING_TEXT);
-    expect(html).toContain('class="cw-drive" aria-hidden="true"');expect(html).toContain('<svg');
+    expect(html).toContain('class="cw-drive cw-drive-md" aria-hidden="true"');expect(html).toContain('<svg');
     expect(html).not.toContain('<i>');
   });
   it('drives back and forth, turns around, stays inside a fixed road and stands still with reduced motion', () => {
-    const css = readFileSync('src/components/chat/employee-chat.css', 'utf8');
-    expect(css).toMatch(/\.cw-drive \{[^}]*width: 104px; height: 30px; overflow: hidden;/);
-    expect(css).toMatch(/@keyframes cw-drive-x \{[^\n]*translateX\(62px\)[^\n]*translateX\(0\)/);
+    const css = readFileSync('src/components/ui/carwise-car-loader.css', 'utf8');
+    expect(css).toMatch(/\.cw-drive \{[^}]*--cw-drive-travel: 62px;[^}]*width: 104px; height: 30px; overflow: hidden;/);
+    expect(css).toMatch(/@keyframes cw-drive-x \{[^\n]*translateX\(var\(--cw-drive-travel\)\)[^\n]*translateX\(0\)/);
     expect(css).toMatch(/@keyframes cw-drive-turn \{[^\n]*scaleX\(-1\)/);
-    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\) \{\s*\.cw-drive-car, \.cw-drive-turn, \.cw-drive-turn svg \{ animation: none; transform: none; \}/);
+    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\) \{\s*\.cw-drive-car, \.cw-drive-turn, \.cw-drive \.cw-drive-turn svg \{ animation: none; transform: none; \}/);
     // The chat thread uses it instead of the old three dots.
     const thread = readFileSync('src/components/chat/chat-thread.tsx', 'utf8');
     expect(thread).toContain('{props.thinking && <ThinkingCar />}');

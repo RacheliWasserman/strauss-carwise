@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
+import { CarWiseCarLoader } from './ui/carwise-car-loader';
 
 export function LogoutButton() {
   const router = useRouter();
@@ -40,7 +41,7 @@ export function LogoutButton() {
         disabled={pending}
         className="rounded-lg border border-white/30 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10 disabled:opacity-60"
       >
-        {pending ? 'מתנתקים...' : 'התנתקות'}
+        {pending ? <CarWiseCarLoader variant="button" label="מתנתקים..." className="cw-on-dark" /> : 'התנתקות'}
       </button>
       {error && <span role="alert" className="text-xs text-rose-200">{error}</span>}
     </div>

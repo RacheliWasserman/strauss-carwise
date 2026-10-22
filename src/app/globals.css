@@ -2,31 +2,89 @@
 :root{font-family:Arial,Helvetica,sans-serif;color:#172a32;background:#f5f7fa}
 body{margin:0}button,select,input{font:inherit}button{cursor:pointer}
 
-.auth-shell{min-height:100vh;display:grid;grid-template-columns:minmax(320px,0.9fr) minmax(0,1.1fr);background:#f3f6f4}
-.auth-panel{width:min(100%,480px);align-self:center;justify-self:center;padding:56px 42px}
-.auth-mark{font-size:14px;font-weight:800;color:#164b45}
-.auth-mark span{color:#c0643a}
-.auth-eyebrow{margin:54px 0 12px;color:#57716a;font-size:13px;font-weight:700}
-.auth-panel h1{margin:0;color:#172a32;font-size:34px;line-height:1.2}
-.auth-intro{margin:12px 0 30px;color:#5d6b68;line-height:1.7}
-.auth-form{display:grid;gap:19px}
-.auth-form label{display:grid;gap:8px;color:#314541;font-size:14px;font-weight:700}
-.auth-form input{width:100%;height:48px;border:1px solid #c8d4d0;border-radius:8px;background:#fff;padding:0 13px;color:#172a32;outline:none}
+/* Hebrew placeholders start on the right. A field whose value direction is detected from what is typed (dir="auto")
+   is empty while its placeholder shows, so browsers lay it out left to right; only that empty state is turned right
+   to left, and typed values keep their own direction. LTR fields (email, IDs, amounts) opt in with
+   .cw-placeholder-rtl only when their placeholder is Hebrew. */
+input[dir="auto"]:placeholder-shown,textarea[dir="auto"]:placeholder-shown,.cw-placeholder-rtl:placeholder-shown{direction:rtl;text-align:right;unicode-bidi:isolate}
+input[dir="auto"]::placeholder,textarea[dir="auto"]::placeholder,.cw-placeholder-rtl::placeholder{direction:rtl;text-align:right}
+
+/* Modal dialogs are centred in the viewport. Tailwind's preflight resets the UA `margin: auto` of <dialog>, which
+   pinned modals to the top corner; this restores the centring for every modal dialog. Zero specificity, so a
+   dialog's own size (e.g. full screen on phones) still applies. */
+:where(dialog:modal){position:fixed;inset:0;margin:auto;max-width:calc(100vw - 32px);max-height:calc(100dvh - 32px);overscroll-behavior:contain}
+:where(dialog)::backdrop{background:rgb(9 38 42 / 48%);backdrop-filter:blur(2px)}
+
+/* The CarWise brand (components/brand/brand-lockup.tsx): the original W mark beside the LTR wordmark.
+   The mark is global because it also appears outside the chat (sign-in pages, representative header). */
+.cw-mark { width: 45px; height: 45px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 15px; color: #dcfff8; background: linear-gradient(135deg,#319c91,#18716b); box-shadow: inset 0 1px 0 #ffffff30,0 4px 12px #062c3320; }
+.cw-mark svg { width: 36px; height: 36px; }
+.cw-mark-small { width: 35px; height: 35px; border-radius: 12px; }
+.cw-mark-small svg { width: 29px; height: 29px; }
+.cw-lockup{display:inline-flex;align-items:center;gap:12px}
+.cw-lockup-words{display:flex;flex-direction:column;text-align:left}
+.cw-lockup-name{display:block;font-family:'Segoe UI',Arial,sans-serif;font-size:27px;font-weight:700;letter-spacing:-1px;line-height:1.1}
+.cw-lockup-name>span{color:#e8926c}
+.cw-lockup-caption{display:block;font-family:'Segoe UI',Arial,sans-serif;font-size:9px;letter-spacing:3px;margin-top:7px}
+.cw-lockup-light .cw-lockup-name{color:#fff}.cw-lockup-light .cw-lockup-caption{color:#c0d6da}
+.cw-lockup-dark .cw-lockup-name{color:#173b43}.cw-lockup-dark .cw-lockup-caption{color:#6b7f7c}
+.cw-lockup-sm{gap:10px}.cw-lockup-sm .cw-lockup-name{font-size:21px;letter-spacing:-.6px}.cw-lockup-sm .cw-lockup-caption{font-size:8px;letter-spacing:2.6px;margin-top:5px}
+
+/* Sign-in, registration and profile completion: warm form on the right, deep-green brand panel on the left. */
+.auth-shell{min-height:100vh;min-height:100dvh;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.08fr);background:#fbf8f3;color:#172a32;font-family:'Segoe UI',Arial,sans-serif}
+.auth-panel{width:min(100%,452px);align-self:center;justify-self:center;padding:52px 32px}
+.auth-panel-brand{display:flex;width:max-content;margin-bottom:46px}
+.auth-eyebrow{display:inline-flex;align-items:center;gap:8px;margin:0 0 12px;color:#2c6d61;font-size:13px;font-weight:700}
+.auth-eyebrow::before{content:"";width:7px;height:7px;border-radius:50%;background:#7fcdb4}
+.auth-panel h1{margin:0;color:#163a3f;font-size:36px;font-weight:750;letter-spacing:-.6px;line-height:1.2}
+.auth-intro{margin:10px 0 30px;color:#5f6e6a;line-height:1.75;font-size:15px}
+.auth-form{display:grid;gap:18px}
+.auth-form label{display:grid;gap:8px;color:#2f4440;font-size:14px;font-weight:700}
+.auth-form input{width:100%;height:50px;border:1px solid #ddd6ca;border-radius:12px;background:#fff;padding:0 14px;color:#172a32;font-size:16px;font-weight:400;outline:none;transition:border-color .15s,box-shadow .15s}
+.auth-form input[dir="ltr"]{text-align:left}
+.auth-form input:hover{border-color:#c9c0b1}
+.auth-form input:focus{border-color:#287365;box-shadow:0 0 0 4px rgb(40 115 101 / 13%)}
 .auth-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.auth-help{color:#61716c;font-size:12px;font-weight:400;line-height:1.5}
-.auth-form input:focus{border-color:#287365;box-shadow:0 0 0 3px rgb(40 115 101 / 13%)}
-.auth-submit{min-height:48px;border:0;border-radius:8px;background:#155b50;color:#fff;font-weight:700;transition:background .15s ease}
-.auth-submit:hover:not(:disabled){background:#10483f}
-.auth-submit:disabled{cursor:wait;opacity:.65}
-.auth-alert{margin:0;border-radius:7px;padding:12px 14px;font-size:14px;line-height:1.6}
+.auth-help{color:#66746f;font-size:12px;font-weight:400;line-height:1.6}
+.auth-password{position:relative;display:block}
+.auth-password input{padding-left:52px}
+.auth-reveal{position:absolute;left:6px;top:50%;transform:translateY(-50%);display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border:0;border-radius:9px;background:transparent;color:#55706a}
+.auth-reveal:hover{background:#eef4f1;color:#155b50}
+.auth-reveal:focus-visible,.auth-submit:focus-visible,.auth-switch a:focus-visible{outline:3px solid #d18455;outline-offset:3px}
+.auth-submit{display:inline-flex;align-items:center;justify-content:center;min-height:52px;margin-top:4px;border:0;border-radius:12px;background:#155b50;color:#fff;font-size:16px;font-weight:700;box-shadow:0 6px 16px rgb(21 91 80 / 20%);transition:background .15s ease,transform .15s ease}
+.auth-submit:hover:not(:disabled){background:#10483f;transform:translateY(-1px)}
+.auth-submit:disabled{cursor:wait;opacity:.82}
+.auth-alert{margin:0;border-radius:10px;padding:12px 14px;font-size:14px;line-height:1.6}
 .auth-error{background:#fff0ed;color:#a33e2c}
 .auth-success{background:#eaf5ef;color:#246743}
 .auth-switch{margin:24px 0 0;color:#61716c;font-size:14px}
 .auth-switch a{color:#155b50;font-weight:700;text-decoration:underline;text-underline-offset:3px}
-.auth-aside{position:relative;display:flex;min-height:100vh;flex-direction:column;justify-content:flex-end;overflow:hidden;background:#164b45;padding:clamp(36px,7vw,96px);color:#fff}
-.auth-aside::before{position:absolute;inset:0;content:"";background:linear-gradient(145deg,transparent 45%,rgb(6 41 38 / 38%)),repeating-linear-gradient(135deg,transparent 0 38px,rgb(255 255 255 / 4%) 39px 40px)}
-.auth-aside-label,.auth-aside p,.auth-aside-rule{position:relative}
-.auth-aside-label{color:#c2d9cd;font-size:12px;font-weight:700}
-.auth-aside p{margin:18px 0 26px;font-size:clamp(30px,4vw,54px);font-weight:700;line-height:1.2}
-.auth-aside-rule{width:58px;height:4px;background:#d17a4c}
-@media(max-width:760px){.auth-shell{grid-template-columns:1fr}.auth-row{grid-template-columns:1fr}.auth-panel{padding:40px 24px}.auth-eyebrow{margin-top:42px}.auth-aside{min-height:220px;padding:32px 24px}.auth-aside p{font-size:30px;margin:12px 0 18px}}
+.auth-aside{position:relative;display:flex;min-height:100vh;min-height:100dvh;flex-direction:column;overflow:hidden;padding:clamp(36px,5.5vw,76px) clamp(32px,5.5vw,76px) 0;color:#fff;
+  background:radial-gradient(120% 80% at 85% 10%,#1f6b5f 0,transparent 60%),linear-gradient(160deg,#145349 0%,#0f3f3b 55%,#0b3134 100%)}
+.auth-aside-petals{position:absolute;top:-70px;left:-90px;width:420px;height:470px;background:url(/brand/petal-watermark.svg) center/contain no-repeat;opacity:.08;transform:rotate(-18deg);pointer-events:none}
+.auth-aside-brand,.auth-aside-headline,.auth-road{position:relative}
+.auth-aside-brand{align-self:flex-start}
+.auth-aside-headline{max-width:9.6em;margin:auto 0 0;padding-bottom:clamp(28px,4vw,48px);font-size:clamp(32px,3.6vw,54px);font-weight:750;letter-spacing:-1px;line-height:1.16}
+.auth-road{flex:0 0 auto;height:150px;margin-inline:calc(-1 * clamp(32px,5.5vw,76px))}
+.auth-road-hills{position:absolute;inset:0 0 54px;background:radial-gradient(60% 120% at 20% 100%,#1b6a5d 0 58%,transparent 59%),radial-gradient(55% 110% at 78% 100%,#185e54 0 56%,transparent 57%);opacity:.75}
+.auth-road-strip{position:absolute;inset:auto 0 0;height:56px;background:#0a2b2c;border-top:3px solid #2d7c6d;overflow:hidden}
+.auth-road-lane{position:absolute;top:50%;left:0;width:200%;height:3px;margin-top:-1px;background:repeating-linear-gradient(90deg,#9ddcc9 0 26px,transparent 26px 58px);opacity:.7;animation:auth-lane 2.6s linear infinite}
+.auth-road-car{position:absolute;bottom:34px;left:clamp(28px,10%,110px);width:118px;height:64px;
+  --cw-car-body:#e1f4e9;--cw-car-glass:#2b7a6f;--cw-car-light:#f2a27c;--cw-car-wheel:#071f20;--cw-car-rim:#a8d9cc}
+.auth-road-car svg{display:block;width:100%;height:100%;overflow:visible;animation:auth-car 1.6s ease-in-out infinite alternate}
+@keyframes auth-lane{to{transform:translateX(-58px)}}
+@keyframes auth-car{from{transform:translateY(0)}to{transform:translateY(-1.5px)}}
+@media(prefers-reduced-motion:reduce){.auth-road-lane,.auth-road-car svg{animation:none}}
+@media(max-width:760px){
+  .auth-shell{grid-template-columns:1fr;grid-template-rows:auto 1fr}
+  .auth-aside{order:-1;min-height:0;flex-direction:row;align-items:center;justify-content:space-between;gap:16px;padding:16px 20px}
+  .auth-aside-petals{width:220px;height:250px;top:-60px;left:-70px}
+  .auth-aside-brand .cw-mark{width:35px;height:35px;border-radius:12px}.auth-aside-brand .cw-mark svg{width:29px;height:29px}.auth-aside-brand .cw-lockup-name{font-size:20px}.auth-aside-brand .cw-lockup-caption{font-size:7px;margin-top:4px}
+  .auth-aside-headline{max-width:15ch;margin:0;padding:0;font-size:14px;font-weight:600;line-height:1.45;text-align:left;color:#d8efe8;letter-spacing:0}
+  .auth-road{display:none}
+  .auth-panel{align-self:start;padding:26px 20px 40px}
+  .auth-panel-brand{display:none}
+  .auth-panel h1{font-size:29px}
+  .auth-intro{margin-bottom:24px}
+  .auth-row{grid-template-columns:1fr}
+}

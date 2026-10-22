@@ -1,12 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useId, useState } from 'react';
 import { z } from 'zod';
 import {
   encodeRepAnswer, fieldFromTopic, formatAnswerValue, REP_ANSWER_KIND, REQUESTABLE_FIELDS, requestableFieldSchema,
   validateAnswerValue, type RequestableField
 } from '../../lib/representative-answer';
 import { isOverdue, matchesQuery, OVERDUE_MINUTES, waitingText, type QueueFilter } from '../../lib/representative-queue-view';
+import { CarWiseCarLoader } from '../ui/carwise-car-loader';
 
 /**
  * Representative dashboard. Shows each request's missing field, its question, the employee's name and minimal
@@ -32,36 +33,37 @@ async function readError(response: Response, fallback: string) {
 
 function Pill({ tone, children }: { tone: 'waiting' | 'mine' | 'done'; children: React.ReactNode }) {
   const tones = { waiting: 'bg-amber-50 text-amber-800 ring-amber-200', mine: 'bg-sky-50 text-sky-800 ring-sky-200', done: 'bg-emerald-50 text-emerald-800 ring-emerald-200' };
-  return <span className={`inline-flex shrink-0 items-center rounded-full px-3 py-1 text-xs font-semibold ring-1 ${tones[tone]}`}>{children}</span>;
+  return <span className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ${tones[tone]}`}>{children}</span>;
 }
 
-function Metric({ label, value, tone }: { label: string; value: number | null; tone: string }) {
-  return <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-    <p className="text-sm font-medium text-slate-600">{label}</p>
-    <p className={`mt-2 text-3xl font-bold tabular-nums ${tone}`}>{value ?? '–'}</p>
-  </div>;
+/** A small counter that is also the status filter (the existing statuses only). */
+function StatusFilter({ label, value, tone, active, onSelect }: { label: string; value: number | null; tone: string; active: boolean; onSelect: () => void }) {
+  return <button type="button" onClick={onSelect} aria-pressed={active}
+    className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-semibold ring-1 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-[#137c77] ${active ? 'bg-[#123f50] text-white ring-[#123f50]' : 'bg-white text-slate-700 ring-slate-200 hover:bg-slate-50'}`}>
+    {label}<span className={`min-w-[1.5rem] rounded-full px-1.5 text-center text-xs tabular-nums ${active ? 'bg-white/20 text-white' : `bg-slate-100 ${tone}`}`}>{value ?? '–'}</span>
+  </button>;
 }
 
 export function RequestHeader({ request, field, pill, now }: { request: Request; field: RequestableField | null; pill: React.ReactNode; now: number }) {
   const overdue = isOverdue(request, now);
   return <>
-    <div className="flex flex-wrap items-start justify-between gap-3">
-      <div className="min-w-0">
+    <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1.5">
+      <div className="min-w-0 flex-1">
         {/* The account's stored name, read on the server. A missing name means the identity record does not exist yet. */}
-        <p className="text-base font-bold text-slate-900">{request.employee_name
+        <p className="text-sm font-bold text-slate-900">{request.employee_name
           ? <bdi>{request.employee_name}</bdi>
           : <span className="font-semibold text-slate-500">שם לא זמין (פרטי הזהות עוד לא נשמרו)</span>}
           {request.occupation && <span className="font-normal text-slate-600"> · <bdi>{request.occupation}</bdi></span>}
           {request.employee_id_last4 && <span className="font-normal text-slate-600"> · ת״ז <bdi dir="ltr">•••••{request.employee_id_last4}</bdi></span>}</p>
-        <h3 className="mt-1 text-lg font-bold leading-snug text-[#123f50]">{field ? REQUESTABLE_FIELDS[field].label : 'פנייה כללית'}</h3>
+        <h3 className="mt-0.5 text-[15px] font-bold leading-snug text-[#123f50]">{field ? REQUESTABLE_FIELDS[field].label : 'פנייה כללית'}</h3>
       </div>
-      <div className="flex flex-wrap items-center gap-2">
-        {overdue && <span className="inline-flex items-center rounded-full bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-800 ring-1 ring-rose-200">מעל {OVERDUE_MINUTES} דקות</span>}
+      <div className="flex flex-wrap items-center gap-1.5">
+        {overdue && <span className="inline-flex items-center rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-800 ring-1 ring-rose-200">מעל {OVERDUE_MINUTES} דקות</span>}
         {pill}
       </div>
     </div>
-    <p className="mt-2 leading-relaxed text-slate-800">{field ? REQUESTABLE_FIELDS[field].question : request.topic ?? 'ללא נושא'}</p>
-    <p className="mt-2 text-xs text-slate-500">מספר פנייה <bdi>#{request.id.slice(0, 6)}</bdi> · נפתחה <time dateTime={request.requested_at}>{time(request.requested_at)}</time>
+    <p className="mt-1 text-sm leading-relaxed text-slate-700">{field ? REQUESTABLE_FIELDS[field].question : request.topic ?? 'ללא נושא'}</p>
+    <p className="mt-1 text-xs text-slate-500">מספר פנייה <bdi>#{request.id.slice(0, 6)}</bdi> · נפתחה <time dateTime={request.requested_at}>{time(request.requested_at)}</time>
       {' · '}<span className={overdue ? 'font-semibold text-rose-700' : 'font-medium text-slate-700'}>{waitingText(request, now)}</span></p>
   </>;
 }
@@ -88,13 +90,13 @@ export function NationalIdReveal({ request }: { request: Request }) {
       setState(id ? { kind: 'shown', id } : { kind: 'error' });
     } catch { setState({ kind: 'error' }); }
   };
-  return <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
+  return <div className="flex flex-wrap items-center gap-3 text-sm">
     {state.kind === 'shown'
       ? <><span className="rounded-lg bg-slate-100 px-3 py-1.5 font-semibold text-slate-900 ring-1 ring-slate-200">ת״ז מלאה: <bdi dir="ltr">{state.id}</bdi></span>
         <button type="button" onClick={() => setState({ kind: 'hidden' })} className="font-semibold text-[#123f50] underline">הסתרה</button></>
       : <button type="button" onClick={() => void reveal()} disabled={state.kind === 'loading'}
-          className="rounded-lg bg-white px-3 py-1.5 font-semibold text-[#123f50] ring-1 ring-slate-300 hover:bg-slate-50 disabled:opacity-60">
-          {state.kind === 'loading' ? 'רגע…' : 'הצגת ת״ז מלאה'}</button>}
+          className="inline-flex items-center rounded-lg bg-white px-3 py-1.5 font-semibold text-[#123f50] ring-1 ring-slate-300 hover:bg-slate-50 disabled:opacity-70">
+          {state.kind === 'loading' ? <CarWiseCarLoader variant="button" label="רגע…" /> : 'הצגת ת״ז מלאה'}</button>}
     {state.kind === 'error' && <span role="alert" className="text-rose-700">לא ניתן להציג את הפרט כרגע.</span>}
     <span className="text-xs text-slate-500">זמין רק בזמן שהפנייה בטיפולך. כל הצגה נרשמת.</span>
   </div>;
@@ -127,7 +129,7 @@ function AnswerForm({ request, field, onSent }: { request: Request; field: Reque
       setSending(false);
     }
   };
-  return <form className="mt-5 grid gap-4 rounded-xl bg-slate-50 p-4 ring-1 ring-slate-200 sm:grid-cols-2" onSubmit={event => { event.preventDefault(); void submit(); }}>
+  return <form className="mt-3 grid gap-3 rounded-xl bg-slate-50 p-3 ring-1 ring-slate-200 sm:grid-cols-2" onSubmit={event => { event.preventDefault(); void submit(); }}>
     <div>
       <label htmlFor={inputId} className="block text-sm font-semibold text-slate-800">{spec.label}</label>
       <div className="mt-1.5 flex items-stretch overflow-hidden rounded-lg border border-slate-300 bg-white focus-within:ring-2 focus-within:ring-[#137c77]">
@@ -147,18 +149,46 @@ function AnswerForm({ request, field, onSent }: { request: Request; field: Reque
     {error && <p role="alert" className="rounded-lg bg-rose-50 p-3 text-sm text-rose-800 ring-1 ring-rose-200 sm:col-span-2">{error}</p>}
     <div className="sm:col-span-2">
       <button type="submit" disabled={sending}
-        className="rounded-lg bg-[#137c77] px-5 py-2.5 font-semibold text-white shadow-sm transition hover:bg-[#0f6965] focus:outline-none focus:ring-2 focus:ring-[#137c77] focus:ring-offset-2 disabled:opacity-60">
-        {sending ? 'בשליחה…' : 'שליחת התשובה'}
+        className="inline-flex items-center rounded-lg bg-[#137c77] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0f6965] focus:outline-none focus:ring-2 focus:ring-[#137c77] focus:ring-offset-2 disabled:opacity-60">
+        {sending ? <CarWiseCarLoader variant="button" label="בשליחה…" className="cw-on-dark" /> : 'שליחת התשובה'}
       </button>
     </div>
   </form>;
 }
 
 function Section({ title, count, empty, children }: { title: string; count: number; empty: string; children: React.ReactNode }) {
-  return <section aria-label={title} className="space-y-3">
-    <h2 className="flex items-center gap-2 text-lg font-bold text-slate-900">{title}<span className="rounded-full bg-slate-200 px-2.5 py-0.5 text-xs font-semibold text-slate-700">{count}</span></h2>
-    {count ? <ul className="space-y-3">{children}</ul> : <p className="rounded-2xl bg-white p-5 text-sm text-slate-600 ring-1 ring-slate-200">{empty}</p>}
+  return <section aria-label={title} className="space-y-2">
+    <h2 className="flex items-center gap-2 text-sm font-bold text-slate-800">{title}<span className="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-semibold text-slate-700">{count}</span></h2>
+    {count ? <ul className="space-y-2">{children}</ul> : <p className="rounded-xl bg-white px-4 py-3 text-sm text-slate-600 ring-1 ring-slate-200">{empty}</p>}
   </section>;
+}
+
+/**
+ * One compact request card. The summary is always visible; the details (ID reveal, answer form, sent answer) open
+ * per card. The full-ID control is mounted only while the card is open, so collapsing a card also hides the ID; an
+ * answer being typed is kept while the card is collapsed.
+ */
+export function RequestCard({ accent, header, action, toggleLabel, children, revealable }: {
+  accent: string; header: React.ReactNode; action?: React.ReactNode; toggleLabel?: string; children?: React.ReactNode; revealable?: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const detailsId = useId();
+  return <li className={`rounded-xl border-r-4 bg-white px-4 py-3 shadow-sm ring-1 ${accent}`}>
+    {header}
+    {(action || toggleLabel) && <div className="mt-2 flex flex-wrap items-center gap-2">
+      {action}
+      {toggleLabel && <button type="button" onClick={() => setOpen(value => !value)} aria-expanded={open} aria-controls={detailsId}
+        className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-semibold text-[#123f50] ring-1 ring-slate-200 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#137c77]">
+        {open ? 'סגירה' : toggleLabel}
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+          className={`transition-transform ${open ? 'rotate-180' : ''}`}><path d="m6 9 6 6 6-6" /></svg>
+      </button>}
+    </div>}
+    {toggleLabel && <div id={detailsId} hidden={!open} className="mt-3 border-t border-slate-100 pt-3">
+      {open && revealable}
+      {children}
+    </div>}
+  </li>;
 }
 
 export function RepresentativeConsole({ userId }: { userId: string }) {
@@ -212,73 +242,71 @@ export function RepresentativeConsole({ userId }: { userId: string }) {
   const done = show('done') ? allDone.filter(visible) : [];
   const overdueCount = [...allWaiting, ...allMine].filter(request => isOverdue(request, now)).length;
 
-  return <div dir="rtl" className="space-y-8">
-    <div className="grid gap-4 sm:grid-cols-3" aria-live="polite">
-      <Metric label="ממתינות" value={requests ? allWaiting.length : null} tone="text-amber-700" />
-      <Metric label="בטיפולי" value={requests ? allMine.length : null} tone="text-sky-700" />
-      <Metric label="טופלו על ידי" value={requests ? allDone.length : null} tone="text-emerald-700" />
+  const setView = (view: QueueFilter['view']) => setFilter(current => ({ ...current, view }));
+  const empty = (none: string) => filter.query ? 'אין פניות שמתאימות לחיפוש.' : none;
+
+  return <div dir="rtl" className="space-y-5">
+    <div className="space-y-3 rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200 sm:p-4">
+      <div className="flex flex-wrap items-center gap-2" role="group" aria-label="סינון לפי סטטוס">
+        <StatusFilter label="הכול" value={requests ? allWaiting.length + allMine.length + allDone.length : null} tone="text-slate-700" active={filter.view === 'all'} onSelect={() => setView('all')} />
+        <StatusFilter label="ממתינות" value={requests ? allWaiting.length : null} tone="text-amber-700" active={filter.view === 'waiting'} onSelect={() => setView('waiting')} />
+        <StatusFilter label="בטיפולי" value={requests ? allMine.length : null} tone="text-sky-700" active={filter.view === 'mine'} onSelect={() => setView('mine')} />
+        <StatusFilter label="טופלו על ידי" value={requests ? allDone.length : null} tone="text-emerald-700" active={filter.view === 'done'} onSelect={() => setView('done')} />
+        {overdueCount > 0 && <p className="rounded-full bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-800 ring-1 ring-rose-200" role="status">{overdueCount === 1 ? 'פנייה אחת ממתינה' : `${overdueCount} פניות ממתינות`} יותר מ־{OVERDUE_MINUTES} דקות</p>}
+      </div>
+      <div className="flex flex-wrap items-center gap-2" role="search">
+        <label className="min-w-[200px] flex-1">
+          <span className="sr-only">חיפוש לפי שם, תפקיד או שדה</span>
+          <input type="search" dir="auto" value={filter.query} onChange={event => setFilter(current => ({ ...current, query: event.target.value }))}
+            placeholder="חיפוש לפי שם, תפקיד או שדה" className="block w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-[#137c77]" />
+        </label>
+        <button onClick={() => void load()} disabled={loading}
+          className="inline-flex items-center rounded-lg bg-white px-3 py-1.5 text-sm font-medium text-slate-800 ring-1 ring-slate-300 hover:bg-slate-50 disabled:opacity-70">{loading ? <CarWiseCarLoader variant="button" label="מרעננים…" /> : 'רענון'}</button>
+      </div>
+      <p className="text-xs leading-relaxed text-amber-900"><span className="font-semibold">לתשומת לב:</span> יש לענות רק לפי מקור רשמי, כמו תלוש השכר או מערכת השכר. אם אין מקור כזה, עדיף להשאיר את הפנייה בטיפול ולא לשלוח הערכה.</p>
     </div>
 
-    <div className="flex flex-wrap items-start justify-between gap-3 rounded-2xl bg-amber-50 p-4 text-sm leading-relaxed text-amber-900 ring-1 ring-amber-200">
-      <p className="min-w-0 flex-1">יש לענות רק לפי מקור רשמי, כמו תלוש השכר או מערכת השכר. אם אין מקור כזה, עדיף להשאיר את הפנייה בטיפול ולא לשלוח הערכה.</p>
-      <button onClick={() => void load()} disabled={loading}
-        className="rounded-lg bg-white px-3 py-1.5 font-medium text-slate-800 ring-1 ring-slate-300 hover:bg-slate-50 disabled:opacity-60">{loading ? 'בטעינה…' : 'רענון'}</button>
-    </div>
-
-    {requests && <div className="flex flex-wrap items-end gap-3 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200" role="search">
-      <label className="min-w-[200px] flex-1 text-sm font-semibold text-slate-800">חיפוש
-        <input type="search" value={filter.query} onChange={event => setFilter(current => ({ ...current, query: event.target.value }))}
-          placeholder="שם, תפקיד או שדה" className="mt-1.5 block w-full rounded-lg border border-slate-300 px-3 py-2 text-base font-normal outline-none focus:ring-2 focus:ring-[#137c77]" />
-      </label>
-      <label className="text-sm font-semibold text-slate-800">סטטוס
-        <select value={filter.view} onChange={event => setFilter(current => ({ ...current, view: event.target.value as QueueFilter['view'] }))}
-          className="mt-1.5 block rounded-lg border border-slate-300 bg-white px-3 py-2 text-base font-normal outline-none focus:ring-2 focus:ring-[#137c77]">
-          <option value="all">הכול</option><option value="waiting">ממתינות לטיפול</option><option value="mine">בטיפולי</option><option value="done">טופלו על ידי</option>
-        </select>
-      </label>
-      {overdueCount > 0 && <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-800 ring-1 ring-rose-200" role="status">{overdueCount === 1 ? 'פנייה אחת ממתינה' : `${overdueCount} פניות ממתינות`} יותר מ־{OVERDUE_MINUTES} דקות</p>}
-    </div>}
-
-    {notice && <p role="status" className="rounded-2xl bg-emerald-50 p-4 text-sm text-emerald-900 ring-1 ring-emerald-200">{notice}</p>}
-    {error && <div role="alert" className="rounded-2xl bg-rose-50 p-4 text-sm text-rose-800 ring-1 ring-rose-200">{error} <button className="font-semibold underline" onClick={() => void load()}>ניסיון חוזר</button></div>}
-    {requests === null && loading && <p role="status" className="rounded-2xl bg-white p-6 text-slate-600 ring-1 ring-slate-200">הפניות בטעינה…</p>}
+    {notice && <p role="status" className="rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-900 ring-1 ring-emerald-200">{notice}</p>}
+    {error && <div role="alert" className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-800 ring-1 ring-rose-200">{error} <button className="font-semibold underline" onClick={() => void load()}>ניסיון חוזר</button></div>}
+    {requests === null && loading && <div className="rounded-xl bg-white ring-1 ring-slate-200"><CarWiseCarLoader variant="representative" className="justify-center px-4 py-6" /></div>}
 
     {requests && <>
-      {show('mine') && <Section title="בטיפולי" count={mine.length} empty={filter.query ? 'אין פניות שמתאימות לחיפוש.' : 'אין כרגע פניות בטיפולך.'}>
+      {show('mine') && <Section title="בטיפולי" count={mine.length} empty={empty('אין כרגע פניות בטיפולך.')}>
         {mine.map(request => {
           const field = fieldFromTopic(request.topic);
-          return <li key={request.id} className={`rounded-2xl border-r-4 bg-white p-5 shadow-sm ring-1 ${isOverdue(request, now) ? 'border-rose-500 ring-rose-200' : 'border-sky-500 ring-slate-200'}`}>
-            <RequestHeader request={request} field={field} now={now} pill={<Pill tone="mine">בטיפולי</Pill>} />
-            {request.status === 'claimed' && request.assigned_representative_id === userId && <NationalIdReveal key={request.id} request={request} />}
+          return <RequestCard key={request.id} accent={isOverdue(request, now) ? 'border-rose-500 ring-rose-200' : 'border-sky-500 ring-slate-200'}
+            header={<RequestHeader request={request} field={field} now={now} pill={<Pill tone="mine">בטיפולי</Pill>} />}
+            toggleLabel={field ? 'מענה לפנייה' : 'פרטים'}
+            revealable={request.status === 'claimed' && request.assigned_representative_id === userId && <NationalIdReveal key={request.id} request={request} />}>
             {field ? <AnswerForm request={request} field={field} onSent={message => { setNotice(message); void load(); }} />
               : <p className="mt-3 text-sm text-amber-800">בפנייה הזו אין שדה חסר מוגדר, ולכן אין כאן טופס תשובה מובנה.</p>}
-          </li>;
+          </RequestCard>;
         })}
       </Section>}
 
-      {show('waiting') && <Section title="ממתינות לטיפול" count={waiting.length} empty={filter.query ? 'אין פניות שמתאימות לחיפוש.' : 'אין כרגע פניות ממתינות.'}>
-        {waiting.map(request => <li key={request.id} className={`rounded-2xl border-r-4 bg-white p-5 shadow-sm ring-1 ${isOverdue(request, now) ? 'border-rose-500 ring-rose-200' : 'border-amber-400 ring-slate-200'}`}>
-          <RequestHeader request={request} field={fieldFromTopic(request.topic)} now={now} pill={<Pill tone="waiting">ממתינה</Pill>} />
-          <button onClick={() => void claim(request)} disabled={claiming === request.id}
-            className="mt-4 rounded-lg bg-[#123f50] px-5 py-2.5 font-semibold text-white shadow-sm transition hover:bg-[#0f3542] focus:outline-none focus:ring-2 focus:ring-[#123f50] focus:ring-offset-2 disabled:opacity-60">
-            {claiming === request.id ? 'רגע…' : 'העברה לטיפולי'}
-          </button>
-        </li>)}
+      {show('waiting') && <Section title="ממתינות לטיפול" count={waiting.length} empty={empty('אין כרגע פניות ממתינות.')}>
+        {waiting.map(request => <RequestCard key={request.id} accent={isOverdue(request, now) ? 'border-rose-500 ring-rose-200' : 'border-amber-400 ring-slate-200'}
+          header={<RequestHeader request={request} field={fieldFromTopic(request.topic)} now={now} pill={<Pill tone="waiting">ממתינה</Pill>} />}
+          action={<button onClick={() => void claim(request)} disabled={claiming === request.id}
+            className="inline-flex items-center rounded-lg bg-[#123f50] px-4 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0f3542] focus:outline-none focus:ring-2 focus:ring-[#123f50] focus:ring-offset-2 disabled:opacity-70">
+            {claiming === request.id ? <CarWiseCarLoader variant="button" label="מעבירים…" className="cw-on-dark" /> : 'העברה לטיפולי'}
+          </button>} />)}
       </Section>}
 
-      {show('done') && <Section title="טופלו על ידי" count={done.length} empty={filter.query ? 'אין פניות שמתאימות לחיפוש.' : 'עדיין לא נשלחו תשובות.'}>
+      {show('done') && <Section title="טופלו על ידי" count={done.length} empty={empty('עדיין לא נשלחו תשובות.')}>
         {done.map(request => {
           const field = fieldFromTopic(request.topic);
           const answer = answers.get(request.id);
-          return <li key={request.id} className="rounded-2xl border-r-4 border-emerald-500 bg-white p-5 shadow-sm ring-1 ring-slate-200">
-            <RequestHeader request={request} field={field} now={now} pill={<Pill tone="done">טופל על ידך</Pill>} />
-            <dl className="mt-4 grid gap-3 rounded-xl bg-emerald-50/60 p-4 text-sm ring-1 ring-emerald-100 sm:grid-cols-3">
-              <div><dt className="text-slate-600">התשובה שנשלחה</dt><dd className="mt-0.5 text-base font-bold text-slate-900">{answer ? formatAnswerValue(answer.field, answer.value) : '—'}</dd></div>
+          return <RequestCard key={request.id} accent="border-emerald-500 ring-slate-200"
+            header={<RequestHeader request={request} field={field} now={now} pill={<Pill tone="done">טופל על ידך</Pill>} />}
+            toggleLabel="התשובה שנשלחה">
+            <dl className="grid gap-2 rounded-lg bg-emerald-50/60 p-3 text-sm ring-1 ring-emerald-100 sm:grid-cols-3">
+              <div><dt className="text-slate-600">התשובה שנשלחה</dt><dd className="mt-0.5 font-bold text-slate-900">{answer ? formatAnswerValue(answer.field, answer.value) : '—'}</dd></div>
               <div><dt className="text-slate-600">נשלחה</dt><dd className="mt-0.5 font-medium text-slate-900">{answer ? time(answer.answeredAt) : request.answered_at ? time(request.answered_at) : '—'}</dd></div>
               {answer?.note && <div className="sm:col-span-3"><dt className="text-slate-600">הערה</dt><dd className="mt-0.5 leading-relaxed text-slate-900">{answer.note}</dd></div>}
             </dl>
-            <p className="mt-3 text-xs text-slate-500">בשיחה תוצג אפשרות להשתמש בתשובה. היא תישמר בפרופיל רק אחרי אישור בסיכום.</p>
-          </li>;
+            <p className="mt-2 text-xs text-slate-500">בשיחה תוצג אפשרות להשתמש בתשובה. היא תישמר בפרופיל רק אחרי אישור בסיכום.</p>
+          </RequestCard>;
         })}
       </Section>}
     </>}

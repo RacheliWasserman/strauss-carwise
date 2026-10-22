@@ -12,7 +12,7 @@ export type VehicleIdentification =
   | { kind: 'none' };
 
 /** Hebrew spellings of catalog model names (keyed by the catalog's display name; used only if that row is active). */
-const MODEL_ALIASES: Record<string, string[]> = {
+export const MODEL_ALIASES: Readonly<Record<string, string[]>> = {
   'PICANTO': ['פיקנטו'], 'YARIS CROSS HSD': ['יאריס קרוס', 'יאריס קרוס הייבריד'], 'BYD DOLPHIN': ['דולפין', 'בי ווי די דולפין'],
   'LEON': ['לאון', 'ליאון'], 'NIRO': ['נירו'], 'MG4': ['אם גי 4', 'אמ גי 4', 'מג 4'], 'COROLLA': ['קורולה'], 'KONA EV': ['קונה', 'קונה חשמלית'],
   'COROLLA CROSS': ['קורולה קרוס'], 'ATTO 3': ['אטו 3', 'אטו3'], 'EV3': ['אי וי 3', 'איוי 3'], 'TUCSON': ['טוסון', 'טוקסון', 'טוסאן'],

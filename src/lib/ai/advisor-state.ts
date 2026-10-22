@@ -22,7 +22,8 @@ export const advisorStateSchema = z.object({
     candidates:z.array(storedOccupationSchema).max(5), match:storedOccupationSchema.optional(),
     officialRoleVerified:z.literal(false)
   }).strict().optional(),
-  pendingQuestion:z.enum(['occupation','occupation_choice','representative','group','financial','approval','vehicle_selection','next_step','correction']).nullable(),
+  // 'comparison': the employee asked to compare the selection with another car; the next explicit choice is ADDED to it.
+  pendingQuestion:z.enum(['occupation','occupation_choice','representative','group','financial','approval','vehicle_selection','next_step','correction','comparison']).nullable(),
   // Employee-reported values. Never a confirmed profile until an approved version is written.
   // current_vehicle_id uses 'NONE' for "no company car today" (a waiver baseline).
   pendingFacts:z.array(z.object({field:factFieldSchema,value:z.union([z.string().max(120),z.number().finite().nonnegative()]),

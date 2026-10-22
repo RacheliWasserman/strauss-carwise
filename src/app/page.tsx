@@ -7,6 +7,7 @@ import {
   type Calculation
 } from '@/lib/calculator';
 import { LogoutButton } from '@/components/logout-button';
+import { CarWiseCarLoader } from '@/components/ui/carwise-car-loader';
 
 type EmployeeOption = {
   id: string;
@@ -190,9 +191,9 @@ export default function Home() {
       </header>
 
       {loading && (
-        <p className="bg-white rounded-2xl p-6">
-          הנתונים נטענים מ־Supabase...
-        </p>
+        <div className="bg-white rounded-2xl">
+          <CarWiseCarLoader variant="inline" label="הנתונים נטענים..." className="justify-center p-6" />
+        </div>
       )}
 
       {error && (
@@ -252,9 +253,7 @@ export default function Home() {
             </select>
 
             {calculating && (
-              <div className="mt-4 text-sm text-slate-600">
-                ההשוואה בחישוב...
-              </div>
+              <CarWiseCarLoader variant="inline" label="ההשוואה בחישוב..." className="mt-4" />
             )}
 
             {comparison && !calculating && (

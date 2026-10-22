@@ -1,9 +1,12 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useRef } from 'react';
 import type { ChatConversation } from '@/lib/chat-client';
 import { LogoutButton } from '@/components/logout-button';
-import { CarWiseMark, ChatIcon } from './chat-icon';
+import { ChatIcon } from './chat-icon';
+import { BrandLockup } from '../brand/brand-lockup';
+import { CarWiseCarLoader } from '../ui/carwise-car-loader';
 
 type Props = {
   conversations: ChatConversation[]; titles: Record<string, string>; activeId: string | null;
@@ -12,6 +15,8 @@ type Props = {
   onLoadMore: () => void; onRetry: () => void;
   /** The signed-in account's stored name, when the identity record exists. */
   account?: { firstName: string; fullName: string };
+  /** The page the sidebar is shown on; the catalog link is marked as the current page there. */
+  section?: 'chat' | 'catalog';
 };
 /** Up to two initials from the stored name, for the account avatar. */
 export const initials = (fullName: string) => fullName.split(/[\s-]+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('');
@@ -49,8 +54,7 @@ export function ChatSidebar(props: Props) {
     <aside ref={panel} id="cw-sidebar" className={`cw-sidebar ${open ? 'cw-sidebar-open' : ''}`}
       aria-label="היסטוריית שיחות" role={open ? 'dialog' : undefined} aria-modal={open || undefined}>
       <div className="cw-sidebar-brand">
-        <CarWiseMark />
-        <div><span className="cw-brand-name" dir="ltr">CarWise<span>.</span></span><span className="cw-brand-caption" dir="ltr">BY STRAUSS</span></div>
+        <BrandLockup tone="light" />
         <button className="cw-icon-button cw-drawer-close" aria-label="סגירת תפריט השיחות" onClick={onClose}><ChatIcon name="close" /></button>
       </div>
       <button className="cw-new-chat" disabled={props.locked} onClick={() => props.onSelect(null)}><ChatIcon name="plus" /><span>שיחה חדשה</span><span className="cw-new-chat-corner">↗</span></button>
@@ -73,9 +77,14 @@ export function ChatSidebar(props: Props) {
           </div>;
         })}
         {props.error && <div className="cw-sidebar-error" role="alert"><p>{props.error}</p><button onClick={props.onRetry} disabled={props.loading}>ניסיון חוזר</button></div>}
-        {props.hasMore && <button className="cw-history-more" onClick={props.onLoadMore} disabled={props.loading}>{props.loading ? 'בטעינה…' : 'שיחות נוספות'}<ChatIcon name="down" /></button>}
+        {props.hasMore && <button className="cw-history-more" onClick={props.onLoadMore} disabled={props.loading}>{props.loading ? <CarWiseCarLoader variant="button" label="בטעינה…" className="cw-on-dark" /> : 'שיחות נוספות'}<ChatIcon name="down" /></button>}
       </nav>
-      <div className="cw-sidebar-note"><ChatIcon name="shield" /><p>אפשר לעצור ולחזור.<br /><span>השיחות נשארות בחשבון שלך.</span></p></div>
+      <Link href="/catalog" className={`cw-catalog-nav ${props.section === 'catalog' ? 'cw-catalog-nav-active' : ''}`}
+        aria-current={props.section === 'catalog' ? 'page' : undefined} onClick={onClose}>
+        <span className="cw-catalog-nav-icon" aria-hidden="true"><ChatIcon name="car" /></span>
+        <span className="cw-catalog-nav-text"><strong>קטלוג רכבי החברה</strong><span>גלו את הרכב הבא שלכם</span></span>
+        <span className="cw-catalog-nav-arrow" aria-hidden="true"><ChatIcon name="forward" /></span>
+      </Link>
       <div className="cw-account"><span className="cw-account-avatar" aria-hidden="true">{props.account ? initials(props.account.fullName) : <ChatIcon name="user" />}</span><div><strong>{props.account?.fullName ?? 'האזור האישי שלך'}</strong><span>{props.account ? 'האזור האישי · STRAUSS' : 'STRAUSS · EMPLOYEE'}</span></div><LogoutButton /></div>
     </aside>
   </>;

@@ -35,7 +35,9 @@ export const extractedFieldSchema = z.object({
   evidence: z.string().max(120).optional(),
   page: z.number().int().positive().max(PAYSLIP_LIMITS.maxPdfPages).optional(),
   confidence: z.enum(['high', 'review']),
-  warnings: z.array(z.string().max(200)).max(4)
+  warnings: z.array(z.string().max(200)).max(4),
+  /** No value because the document holds conflicting values for this field (as opposed to not printing it). */
+  ambiguous: z.literal(true).optional()
 }).strict();
 export type ExtractedField = z.infer<typeof extractedFieldSchema>;
 export const extractionMethodSchema = z.enum(['pdf_text', 'docx', 'vision']);
