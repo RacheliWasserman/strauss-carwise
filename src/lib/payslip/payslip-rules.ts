@@ -24,7 +24,7 @@ export const reverseWordOrder = (text: string) => !/\p{Script=Hebrew}/u.test(tex
 const he = (pattern: string) => `(?:^|[^\\p{L}])(?:${pattern})(?=$|[^\\p{L}])`;
 const re = (...parts: string[]) => new RegExp(parts.join('|'), 'iu');
 export const PAYSLIP_PATTERNS = {
-  base: re('(?:שכר|משכורת)\\s+(?:יסוד|בסיס|משולב(?:ת)?)', he('(?:שכר|משכורת)\\s+חודשי(?:ת)?'), '\\b(?:base|basic)\\s+(?:salary|pay|wage)\\b'),
+  base: re('(?:שכר|משכורת)\\s+(?:יסוד|בסיס|משולב(?:ת)?)', he('(?:שכר|משכורת)\\s+חודשי(?:ת)?'), '\\b(?:base|basic)\\s+(?:gross\\s+)?(?:salary|pay|wage)\\b'),
   /** A combined salary (שכר משולב) may include overtime or other components: recognized, but always for review. */
   combined: /משולב/u,
   /** Year-to-date and cumulative figures (rows or table columns), never the current month's value. */
@@ -47,7 +47,7 @@ export const PAYSLIP_PATTERNS = {
   credit: re('נק(?:ודות|ודת|\'|\\.)?\\s*(?:ה)?זיכוי', '(?:^|[^\\p{L}])נ(?:"|\\.\\s?)ז(?![\\p{L}"])', '\\b(?:tax\\s+)?credit\\s+points?\\b'),
   /** The abbreviation נ"ז / נ.ז (normalize turns ״ into "): recognized, but always for review. */
   creditShort: /(?:^|[^\p{L}])נ(?:"|\.\s?)ז(?![\p{L}"])/u,
-  participation: re('(?:השתתפות|השתת\'|ניכוי)[^|]{0,20}רכב', '\\b(?:car|vehicle)\\s+(?:contribution|participation|deduction)\\b', '\\bemployee\\s+(?:car|vehicle)\\b'),
+  participation: re('(?:השתתפות|השתת\'|ניכוי)[^|]{0,20}רכב', '\\b(?:car|vehicle)\\s+(?:employee\\s+)?(?:contribution|participation|deduction)\\b', '\\bemployee\\s+(?:car|vehicle)\\b'),
   carBenefit: re('שווי\\s*(?:שימוש\\s*)?(?:ב|ה)?רכב', 'שווי רכב', '\\b(?:car|vehicle)\\s+benefit\\b'),
   gross: re('סה"כ\\s*(?:תשלומים|ברוטו)', 'שכר ברוטו', '(?:^|[^\\p{L}])ברוטו\\s+(?:למס|לב"ל|חייב)', 'סה"כ\\s+שכר', 'חייב\\s+במס',
     '\\b(?:gross\\s+(?:pay|salary|total)|total\\s+(?:gross|earnings|payments))\\b'),
@@ -83,7 +83,8 @@ export const FIELD_LABEL_EXCLUDE: Record<PayslipField, RegExp> = {
 
 // "Gross" describes an explicitly identified base row too. Accept only these complete labels;
 // totals, gross-up, cumulative amounts, hourly pay and ambiguous combined rows remain excluded.
-const EXPLICIT_GROSS_BASE = /^(?:(?:שכר|משכורת)\s+(?:בסיס|יסוד)\s+(?:ברוטו|\(ברוטו\))|gross\s+(?:base|basic)\s+(?:salary|pay|wage)|(?:base|basic)\s+(?:salary|pay|wage)\s+(?:gross|\(gross\)))$/iu;
+// A trailing currency note ("(ILS)", "(₪)") belongs to the same label.
+const EXPLICIT_GROSS_BASE = /^(?:(?:שכר|משכורת)\s+(?:בסיס|יסוד)\s+(?:ברוטו|\(ברוטו\))|gross\s+(?:base|basic)\s+(?:salary|pay|wage)|(?:base|basic)\s+gross\s+(?:salary|pay|wage)|(?:base|basic)\s+(?:salary|pay|wage)\s+(?:gross|\(gross\)))(?:\s*\((?:ILS|NIS|₪|ש"ח)\))?$/iu;
 export function isExcludedFieldLabel(field: PayslipField, label: string): boolean {
   return !(field === 'base_salary' && EXPLICIT_GROSS_BASE.test(normalize(label))) && FIELD_LABEL_EXCLUDE[field].test(label);
 }
@@ -106,14 +107,17 @@ type Token = { value: number; raw: string; percent: boolean };
 /**
  * Numbers as printed: "15,000.00", "6.00%", "%6", "900.00-" (a deduction). Never an amount: digits glued to letters
  * (codes, model names), parts of a date ("07/2026", "01/01/2024"), and integers with a leading zero ("00", "05"),
- * which are codes, date parts or a value cut off at the page edge.
+ * which are codes, date parts or a value cut off at the page edge. Text extraction can glue a Hebrew label to its
+ * amount ("שכר יסוד חודשי18,500.00"): after a Hebrew letter only a formatted amount (thousands separator or two
+ * decimals) or a percentage counts, never a bare integer (a code).
  */
 export function tokens(text: string): Token[] {
   const found: Token[] = [];
   for (const match of text.matchAll(/(%\s*)?-?(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?-?(\s*%)?/g)) {
     const before = text.slice(Math.max(0, match.index! - 1), match.index!);
     const after = text.slice(match.index! + match[0].length, match.index! + match[0].length + 1);
-    if (/[A-Za-z\p{Script=Hebrew}/.]/u.test(before) || /[A-Za-z/]/.test(after)) continue;
+    const formatted = Boolean(match[1] || match[4]) || match[2].includes(',') || match[3]?.length === 2;
+    if (/[A-Za-z/.]/.test(before) || (/\p{Script=Hebrew}/u.test(before) && !formatted) || /[A-Za-z/]/.test(after)) continue;
     if (/^0\d/.test(match[2]) && !match[3]) continue;
     const value = Number(match[2].replace(/,/g, '') + (match[3] ? `.${match[3]}` : ''));
     if (!Number.isFinite(value)) continue;

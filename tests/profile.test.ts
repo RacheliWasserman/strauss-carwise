@@ -183,6 +183,20 @@ describe('loading the profile', () => {
     const data = await loadOwnProfile(USER, use);
     expect(data).toMatchObject({ occupations: null, snapshot: null, profileUnavailable: true });
   });
+  it('shows an empty form when the account has no confirmed version (no demo row, no payslip values)', async () => {
+    const data = await loadOwnProfile(USER, deps(null));
+    expect(data).toMatchObject({ snapshot: null, profileUnavailable: false });
+    const form = initialProfileForm(data.snapshot, { firstName: 'נועה', lastName: 'לוי' });
+    for (const field of ['base_salary', 'commissions', 'bonus', 'employee_pension_percent', 'employee_study_fund_percent',
+      'tax_credit_points', 'eligible_children_count', 'current_participation', 'occupationKey', 'current_vehicle_id'] as const) expect(form[field]).toBe('');
+  });
+  it('the profile source is the confirmed version only: the demo employees table and payslip code never feed or write it', () => {
+    const service = readFileSync('src/lib/profile/profile-service.ts', 'utf8');
+    expect(service).toContain('getLatestConfirmedEmployeeData');
+    expect(service).not.toMatch(/employee-repository'|from\('employees'\)/);
+    for (const file of ['src/lib/payslip/payslip-upload-request.ts', 'src/lib/payslip/payslip-service.ts', 'src/app/api/profile/payslip/route.ts'])
+      expect(readFileSync(file, 'utf8')).not.toMatch(/employee-data-repository|advisor_employee_data_versions|createVersion|confirmVersion/);
+  });
 });
 
 describe('POST /api/profile', () => {

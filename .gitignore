@@ -3,3 +3,6 @@ node_modules
 .env*
 !.env.example
 *.tsbuildinfo
+
+# Demo payslips uploaded by the user: local regression fixtures only (tests skip without them)
+tests/fixtures/payslips/noa-demo-*.pdf

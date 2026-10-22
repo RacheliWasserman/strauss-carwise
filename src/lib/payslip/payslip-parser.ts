@@ -25,6 +25,8 @@ type Cell = { text: string; x?: number };
 /** `inferred`: a label and a value printed on separate lines and paired by column (cards, single-column portals). */
 type Line = { cells: Cell[]; page: number; text: string; inferred?: boolean };
 const hasHebrew = (text: string) => /\p{Script=Hebrew}/u.test(text);
+/** A whole cell that only says how the row is paid; never a label of its own. */
+const ROW_NOTE = /^(?:ניכוי(?:\s+(?:מ|מה)?(?:נטו|שכר))?|(?:מ|מה)נטו|חודשי(?:ת)?|קבוע(?:ה)?|deduct(?:ion|ed)?(?:\s+from\s+net)?|monthly|fixed)$/iu;
 const STACKED_WARNING = 'הערך הופיע מתחת לתווית ולא באותה שורה. כדאי לוודא שהוא שייך לה.';
 
 /**
@@ -45,8 +47,10 @@ function segmentAfter(line: Line, pattern: RegExp) {
     : cell.slice(match.index!, firstDigit < 0 ? undefined : match.index! + firstDigit).slice(0, 40).replace(/^[^\p{L}]+|[^\p{L}"']+$/gu, '');
   const following: Cell[] = [];
   for (const cell of line.cells.slice(index + 1)) {
-    // A cell with words is the next label (e.g. a deductions table printed beside the payments table).
+    // A cell with words is the next label (e.g. a deductions table printed beside the payments table), except a
+    // note on how the row is paid ("ניכוי מהנטו") printed between the label and its amount.
     const bare = cell.text.replace(/ש"ח|₪|%|שקלים|ש'|\b(?:NIS|ILS)\b/giu, '');
+    if (!following.length && ROW_NOTE.test(cell.text)) continue;
     if (hasHebrew(bare) || /[A-Za-z]{3,}/.test(bare)) break;
     following.push(cell);
   }
@@ -143,7 +147,11 @@ function contribution(lines: Line[], kind: 'pension' | 'study'): ResolvedField {
   //    Severance (פיצויים) is funded by the employer: a severance row without an employee word is never the rate.
   if (!found.length) for (const line of lines) {
     if (!matches(line) || headerOf(line, 0) || (P.severance.test(line.text) && !P.employee.test(line.text))) continue;
-    const text = line.text;
+    // A unit printed in the label ("Employee pension contribution (%)") applies to the bare number right after it.
+    const text = line.cells.map((cell, k) => {
+      const previous = line.cells[k - 1]?.text ?? '';
+      return /^\d{1,2}(?:\.\d{1,2})?$/.test(cell.text) && /\(%\)$|[^\d\s]\s*%$/u.test(previous) && !/\d/.test(previous) ? `${cell.text}%` : cell.text;
+    }).join(' | ');
     const percents = [...text.matchAll(/(?<![\d.,])()(\d{1,2}(?:\.\d{1,2})?)\s*%/g), ...text.matchAll(/(%\s*)(\d{1,2}(?:\.\d{1,2})?)(?![\d.,])/g)]
       .map(match => ({ value: Number(match[2]), at: match.index! + match[1].length, raw: `${match[2]}%` }))
       .filter((item, position, all) => all.findIndex(other => other.at === item.at) === position);
@@ -195,7 +203,11 @@ function contribution(lines: Line[], kind: 'pension' | 'study'): ResolvedField {
 
 function asLines(lines: DocumentLine[], transform: (text: string) => string): Line[] {
   return lines.map(line => {
-    const cells = line.cells.map(cell => ({ ...cell, text: transform(normalize(cell.text)) })).filter(cell => cell.text);
+    let cells = line.cells.map(cell => ({ ...cell, text: transform(normalize(cell.text)) })).filter(cell => cell.text);
+    // PDF rows are ordered right to left (Hebrew); a row with no Hebrew at all (an English label) reads left to right.
+    if (cells.every(cell => cell.x !== undefined) && !cells.some(cell => hasHebrew(cell.text)) && cells.some(cell => /[A-Za-z]{3,}/.test(cell.text))) {
+      cells = [...cells].sort((a, b) => a.x! - b.x!);
+    }
     return { page: line.page, cells, text: cells.map(cell => cell.text).join(' | ') };
   }).filter(line => line.cells.length && !P.identifier.test(line.text.replace(/סה"כ/g, '')) || hasLabel(line));
 }
@@ -205,17 +217,20 @@ const labelHits = (lines: Line[]) => lines.reduce((sum, line) => sum + LABELS.fi
 /**
  * Single-column and card layouts print a line of labels and, directly below it, a line of their values. Each label
  * is paired with the value in its column (same count, and close horizontally when positions are known); the pairs
- * are added as inferred rows, so their values are always for review.
+ * are added as inferred rows, so their values are always for review. A value line may also hold text values
+ * ("קבוצה ג" under "קבוצת זכאות"): only its numeric cells are paired, and never when it holds a field label itself.
  */
 function withStackedPairs(lines: Line[]): Line[] {
   const isLabel = (cell: Cell) => /\p{L}/u.test(cell.text) && !/\d/.test(cell.text);
   const isValue = (cell: Cell) => /\d/.test(cell.text) && !/\p{L}/u.test(cell.text.replace(/ש"ח|₪|ש'|NIS|ILS/giu, ''));
   return lines.flatMap((line, index) => {
     const labels = lines[index - 1];
-    if (!labels || labels.page !== line.page || !labels.cells.every(isLabel) || !line.cells.every(isValue) || labels.cells.length !== line.cells.length) return [line];
+    if (!labels || labels.page !== line.page || !labels.cells.every(isLabel) || labels.cells.length !== line.cells.length) return [line];
+    if (!line.cells.every(isValue) && (!line.cells.some(isValue) || hasLabel(line))) return [line];
+    const columns = line.cells.flatMap((cell, k) => isValue(cell) ? [k] : []);
     const positioned = labels.cells.every(cell => cell.x !== undefined) && line.cells.every(cell => cell.x !== undefined);
-    if (positioned && labels.cells.some((cell, k) => Math.abs(cell.x! - line.cells[k].x!) > 150)) return [line];
-    return [line, ...labels.cells.map((cell, k): Line => ({ page: line.page, cells: [cell, line.cells[k]], text: `${cell.text} | ${line.cells[k].text}`, inferred: true }))];
+    if (positioned && columns.some(k => Math.abs(labels.cells[k].x! - line.cells[k].x!) > 150)) return [line];
+    return [line, ...columns.map((k): Line => ({ page: line.page, cells: [labels.cells[k], line.cells[k]], text: `${labels.cells[k].text} | ${line.cells[k].text}`, inferred: true }))];
   });
 }
 
@@ -251,7 +266,8 @@ export function parsePayslipLines(input: DocumentLine[]): ParsedPayslip {
   for (const row of fieldRows(lines, 'bonus')) {
     const recurrence = bonusRecurrence(row.head);
     if (recurrence === 'one_time') oneTime.push({ note: oneTimeNote(row.label, row.value) });
-    else bonuses.push(recurrence === 'recurring' ? row : { ...row, warnings: [...row.warnings!, BONUS_RECURRENCE_UNCLEAR] });
+    // A printed zero is no bonus at all: whether it recurs is irrelevant.
+    else bonuses.push(recurrence === 'recurring' || row.value === 0 ? row : { ...row, warnings: [...row.warnings!, BONUS_RECURRENCE_UNCLEAR] });
   }
   candidates.bonus = resolveField(bonuses, oneTime, 'בונוס');
 
