@@ -11,6 +11,12 @@ export type ReviewRows = Record<PayslipField, ReviewRow>;
 /** found: a clear value · review: a candidate to check · missing: not printed · ambiguous: conflicting evidence, no value. */
 export type ReviewRowState = 'manual' | 'unknown' | 'missing' | 'ambiguous' | 'found' | 'review';
 
+/** Display only: translate protocol identifiers in older extraction evidence, never reinterpret its value. */
+export function displayPayslipEvidence(evidence: string): string {
+  return evidence.replace(/\b(base_salary|commissions|bonus|employee_pension_percent|employee_study_fund_percent|tax_credit_points|current_participation)\b/g,
+    identifier => PAYSLIP_FIELDS[identifier as PayslipField].label);
+}
+
 /** "15,000" / "6.5%" / "₪ 900" → a number; empty → null; anything else → NaN. */
 export function parseReviewInput(text: string) {
   const clean = text.replace(/[,\s₪%]/g, '');

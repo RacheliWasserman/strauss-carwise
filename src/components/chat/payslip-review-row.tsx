@@ -1,5 +1,5 @@
 import { formatPayslipValue, PAYSLIP_FIELDS, type PayslipField } from '../../lib/payslip/payslip-contract';
-import { extractedField, reviewRowEdited, reviewRowError, reviewRowState, type ExtractedResult, type ReviewRow } from '../../lib/payslip/payslip-review-form';
+import { displayPayslipEvidence, extractedField, reviewRowEdited, reviewRowError, reviewRowState, type ExtractedResult, type ReviewRow } from '../../lib/payslip/payslip-review-form';
 
 const BADGE = { manual: '', unknown: 'לא ידוע', missing: 'לא נמצא בתלוש', ambiguous: 'לא ניתן לקבוע בוודאות', found: 'זוהה בתלוש', review: 'דורש בדיקה' } as const;
 
@@ -34,7 +34,7 @@ export function PayslipReviewRow({ field, result, row, onChange }: {
     </div>
     <div id={`${id}-help`} className="cw-payslip-help">
       {read !== null && <p className="cw-payslip-read">הערך שנקרא: <bdi dir="ltr">{formatPayslipValue(field, read)}</bdi></p>}
-      {found?.evidence && <p className="cw-payslip-source">מקור: {found.page ? `עמוד ${found.page} · ` : ''}<bdi>{found.evidence}</bdi></p>}
+      {found?.evidence && <p className="cw-payslip-source">מקור: {found.page ? `עמוד ${found.page} · ` : ''}<bdi>{displayPayslipEvidence(found.evidence)}</bdi></p>}
       {error && <p className="cw-payslip-row-error">{error}</p>}
       {found?.warnings.map(warning => <p key={warning} className="cw-payslip-warning">{warning}</p>)}
     </div>

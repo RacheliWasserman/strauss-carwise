@@ -81,6 +81,13 @@ export const FIELD_LABEL_EXCLUDE: Record<PayslipField, RegExp> = {
   current_participation: re(P.participationExclude.source, P.carBenefit.source, P.cumulative.source, ...DOCUMENT)
 };
 
+// "Gross" describes an explicitly identified base row too. Accept only these complete labels;
+// totals, gross-up, cumulative amounts, hourly pay and ambiguous combined rows remain excluded.
+const EXPLICIT_GROSS_BASE = /^(?:(?:שכר|משכורת)\s+(?:בסיס|יסוד)\s+(?:ברוטו|\(ברוטו\))|gross\s+(?:base|basic)\s+(?:salary|pay|wage)|(?:base|basic)\s+(?:salary|pay|wage)\s+(?:gross|\(gross\)))$/iu;
+export function isExcludedFieldLabel(field: PayslipField, label: string): boolean {
+  return !(field === 'base_salary' && EXPLICIT_GROSS_BASE.test(normalize(label))) && FIELD_LABEL_EXCLUDE[field].test(label);
+}
+
 /** Where a row is printed, when the reader knows it (visual reading reports it; text reading does not). */
 export const SECTIONS = ['earnings', 'deductions', 'employer_contributions', 'contributions_table', 'tax_details', 'balances', 'totals', 'other'] as const;
 export type Section = typeof SECTIONS[number];

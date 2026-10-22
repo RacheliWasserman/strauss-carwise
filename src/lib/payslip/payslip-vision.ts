@@ -1,8 +1,8 @@
 import { z } from 'zod';
 import { PAYSLIP_FIELD_ORDER, PAYSLIP_FIELDS, payslipFieldSchema, type ExtractedField, type PayslipField } from './payslip-contract';
 import {
-  bonusRecurrence, BONUS_RECURRENCE_UNCLEAR, COMBINED_SALARY_WARNING, CREDIT_ABBREVIATION_WARNING, FIELD_LABEL, FIELD_LABEL_EXCLUDE, FIELD_SECTION_EXCLUDE,
-  normalize, oneTimeNote, PAYSLIP_PATTERNS as P, resolveField, reverseWordOrder, SECTIONS, tokens, type FieldCandidate, type FieldRejection
+  bonusRecurrence, BONUS_RECURRENCE_UNCLEAR, COMBINED_SALARY_WARNING, CREDIT_ABBREVIATION_WARNING, FIELD_LABEL, FIELD_SECTION_EXCLUDE,
+  isExcludedFieldLabel, normalize, oneTimeNote, PAYSLIP_PATTERNS as P, resolveField, reverseWordOrder, SECTIONS, tokens, type FieldCandidate, type FieldRejection
 } from './payslip-rules';
 import { geminiDiagnostic } from '../ai/gemini-diagnostics';
 
@@ -211,7 +211,7 @@ function checkCandidate(field: PayslipField, item: VisionCandidate, legibility: 
     warnings.push('סדר המילים בתווית הודפס הפוך ותוקן. כדאי לבדוק את הערך מול התלוש.');
   }
   if (item.period === 'cumulative') return reject(CUMULATIVE);
-  if (FIELD_LABEL_EXCLUDE[field].test(label)) return reject(field === 'base_salary' && P.gross.test(label) ? 'נקרא סה״כ ברוטו, שאינו שכר הבסיס.'
+  if (isExcludedFieldLabel(field, label)) return reject(field === 'base_salary' && P.gross.test(label) ? 'נקרא סה״כ ברוטו, שאינו שכר הבסיס.'
     : field === 'base_salary' && P.grossUp.test(label) ? 'נקרא סכום שכולל גילום, ולכן הוא אינו שכר הבסיס.'
     : field === 'current_participation' && P.carBenefit.test(label) ? 'נקרא שווי שימוש ברכב. זה שווי לצורכי מס ולא ההשתתפות שלך.'
     : P.cumulative.test(label) ? CUMULATIVE : OTHER_COMPONENT);

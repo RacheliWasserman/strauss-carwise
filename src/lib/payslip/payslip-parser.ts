@@ -2,7 +2,7 @@ import { PAYSLIP_FIELD_ORDER, type ExtractedField, type PayslipField } from './p
 import type { DocumentLine } from './payslip-file';
 import {
   bonusRecurrence, BONUS_RECURRENCE_UNCLEAR, COMBINED_SALARY_WARNING, CREDIT_ABBREVIATION_WARNING, evidenceOf, FIELD_LABEL, FIELD_LABEL_EXCLUDE, fmt,
-  normalize, oneTimeNote, PAYSLIP_PATTERNS, resolveField, reverseHebrewRuns, reverseWordOrder, tokens,
+  isExcludedFieldLabel, normalize, oneTimeNote, PAYSLIP_PATTERNS, resolveField, reverseHebrewRuns, reverseWordOrder, tokens,
   type FieldCandidate, type FieldRejection, type ResolvedField
 } from './payslip-rules';
 
@@ -78,7 +78,7 @@ function currentTokens(lines: Line[], at: number, segment: NonNullable<ReturnTyp
 
 type Row = FieldCandidate & { head: string };
 /** Money rows for a label: the row's amount is its last current-month number (after quantity and rate). */
-function amountRows(lines: Line[], pattern: RegExp, exclude?: RegExp): Row[] {
+function amountRows(lines: Line[], pattern: RegExp, exclude?: { test: (label: string) => boolean }): Row[] {
   const rows: Row[] = [];
   for (const [at, line] of lines.entries()) {
     const segment = segmentAfter(line, pattern);
@@ -90,7 +90,7 @@ function amountRows(lines: Line[], pattern: RegExp, exclude?: RegExp): Row[] {
   }
   return rows;
 }
-const fieldRows = (lines: Line[], field: PayslipField) => amountRows(lines, FIELD_LABEL[field], FIELD_LABEL_EXCLUDE[field]);
+const fieldRows = (lines: Line[], field: PayslipField) => amountRows(lines, FIELD_LABEL[field], { test: label => isExcludedFieldLabel(field, label) });
 
 /* ---------- Contribution percentages (pension / study fund) ---------- */
 
