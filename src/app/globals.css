@@ -80,6 +80,7 @@ input[dir="auto"]::placeholder,textarea[dir="auto"]::placeholder,.cw-placeholder
 .auth-alert{margin:0;border-radius:10px;padding:12px 14px;font-size:14px;line-height:1.6}
 .auth-error{background:#fff0ed;color:#a33e2c}
 .auth-success{background:#eaf5ef;color:#246743}
+.auth-notice{background:#eef3f6;color:#22465a}
 .auth-switch{margin:24px 0 0;color:#61716c;font-size:14px}
 .auth-switch a{color:#155b50;font-weight:700;text-decoration:underline;text-underline-offset:3px}
 /* Registration (auth-form.tsx): a compact form, so "יצירת חשבון" is in view without scrolling on common laptop screens.

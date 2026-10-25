@@ -86,3 +86,6 @@ export function filterVehicles(vehicles: ShowroomVehicle[], filters: ShowroomFil
 
 /** The chat link that opens the existing conversation flow for one catalog vehicle (its exact catalog ID only). */
 export const netImpactHref = (vehicleId: string) => `/employee?${new URLSearchParams({ vehicle: vehicleId })}`;
+/** The chat link from inside a flow (e.g. Match → "approve the details in the chat"): continues the conversation the
+ * employee was in, with its unapproved summary, instead of opening a new one. */
+export const CONTINUE_CHAT_HREF = '/employee?continue=1';

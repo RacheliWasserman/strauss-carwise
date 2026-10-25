@@ -9,12 +9,12 @@ export type RecallTopic=z.infer<typeof recallTopicSchema>;
 /** High-confidence personal questions outrank a model's generic catalog default. */
 export function profileRecallTopic(text:string):RecallTopic|null {
   if (/(?:^|\s)(?:אם|אילו|נניח)(?:\s|$)/u.test(text)) return null;
-  const question=/(?:מה|איזה|אילו|זוכר|זוכרת|זוכרים|יודע|יודעת|ידוע|זכור|תציג|הצג|תראה|תראי)/u.test(text);
+  const question=/(?:^|[^\p{L}])(?:מה|איזה|אילו|זוכר|זוכרת|זוכרים|יודע|יודעת|ידוע|זכור|תציג|הצג|תראה|תראי)(?=$|[^\p{L}])/u.test(text);
   if (!question) return null;
   if (/(?:השכר שלי|נתוני השכר שלי|פרטי השכר שלי)/u.test(text)&&!/[0-9]|נטו|עלה|ירד|לתקן|לשנות|לעדכן/u.test(text)) return 'financial';
-  if (/(?:מה|איזה).*(?:תפקיד|מקצוע|עיסוק).*שלי/u.test(text)) return 'occupation';
-  if (/(?:איזה|מה).*(?:רכב).*(?:יש לי|שלי|הנוכחי|היום|עכשיו)/u.test(text)) return 'current_vehicle';
-  if (/(?:זוכר|זוכרת|זוכרים|מה).*(?:אמרתי|סיפרתי|ביקשתי)/u.test(text)) return 'conversation';
+  if (/(?:^|[^\p{L}])(?:מה|איזה)(?=$|[^\p{L}]).*(?:תפקיד|מקצוע|עיסוק).*שלי/u.test(text)) return 'occupation';
+  if (/(?:^|[^\p{L}])(?:איזה|מה)(?=$|[^\p{L}]).*(?:רכב).*(?:יש לי|שלי|הנוכחי|היום|עכשיו)/u.test(text)) return 'current_vehicle';
+  if (/(?:^|[^\p{L}])(?:זוכר|זוכרת|זוכרים|מה)(?=$|[^\p{L}]).*(?:אמרתי|סיפרתי|ביקשתי)/u.test(text)) return 'conversation';
   if (/(?:פרטים שלי|הפרופיל שלי|יודע עליי|יודע עלי|יודעת עליי|יודעת עלי|ידוע עליי|ידוע עלי)/u.test(text)) return 'profile';
   return null;
 }

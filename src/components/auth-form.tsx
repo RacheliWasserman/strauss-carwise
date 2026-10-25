@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import { getHebrewAuthError } from '@/lib/auth-errors';
+import { getHebrewAuthError, REGISTRATION_RECEIVED } from '@/lib/auth-errors';
 import { AuthAside } from './auth-visuals';
 import { BrandLockup } from './brand/brand-lockup';
 import { CarWiseCarLoader } from './ui/carwise-car-loader';
@@ -45,6 +45,8 @@ export function AuthForm({ mode, initialError = '' }: AuthFormProps) {
   const [lastName, setLastName] = useState('');
   const [nationalId, setNationalId] = useState('');
   const [message, setMessage] = useState('');
+  // A sign-up waiting for confirmation is not shown as a success: it may also be an existing account (see the route).
+  const [messageTone, setMessageTone] = useState<'success' | 'notice'>('success');
   const [error, setError] = useState(initialError);
   const [pending, setPending] = useState(false);
   const isRegister = mode === 'register';
@@ -61,8 +63,8 @@ export function AuthForm({ mode, initialError = '' }: AuthFormProps) {
     });
     const data = await readJson(response);
     if (response.ok && data.status === 'signed_in') { router.replace('/'); router.refresh(); return; }
-    if (response.ok) { setNationalId(''); setPassword(''); setMessage(data.message ?? 'נשלח אימייל לאישור החשבון. אחרי האישור אפשר להתחבר.'); return; }
-    if (response.status === 202) { setMessage(data.error ?? ''); return; }
+    if (response.ok) { setNationalId(''); setPassword(''); setMessageTone('notice'); setMessage(data.message ?? REGISTRATION_RECEIVED); return; }
+    if (response.status === 202) { setMessageTone('notice'); setMessage(data.error ?? ''); return; }
     setError(data.error ?? 'ההרשמה לא הושלמה. אפשר לנסות שוב.');
   }
 
@@ -152,7 +154,7 @@ export function AuthForm({ mode, initialError = '' }: AuthFormProps) {
           <PasswordField value={password} onChange={setPassword} autoComplete={isRegister ? 'new-password' : 'current-password'} />
 
           {error && <p className="auth-alert auth-error" role="alert">{error}</p>}
-          {message && <p className="auth-alert auth-success" role="status">{message}</p>}
+          {message && <p className={`auth-alert ${messageTone === 'notice' ? 'auth-notice' : 'auth-success'}`} role="status">{message}</p>}
 
           <button className="auth-submit" type="submit" disabled={pending}>
             {pending
@@ -172,7 +174,7 @@ export function AuthForm({ mode, initialError = '' }: AuthFormProps) {
         </div>
         {!isRegister && <RepresentativeDemoCard disabled={pending} onFill={() => {
           setEmail(REPRESENTATIVE_DEMO_LOGIN.email); setPassword(REPRESENTATIVE_DEMO_LOGIN.password);
-          setError(''); setMessage('פרטי הנציג מולאו. לחצו על התחברות כדי להיכנס.');
+          setError(''); setMessageTone('success'); setMessage('פרטי הנציג מולאו. לחצו על התחברות כדי להיכנס.');
         }} />}
         </div>
       </section>

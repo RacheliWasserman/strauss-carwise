@@ -1,3 +1,11 @@
+/**
+ * The one answer to a sign-up that is waiting for e-mail confirmation. It is also the answer when the address or the
+ * national ID already belongs to an account (non-enumerating), so it never claims that an e-mail was sent.
+ */
+export const REGISTRATION_RECEIVED =
+  'קיבלנו את הבקשה. אם אפשר לפתוח חשבון עם הפרטים האלה, יישלח בדקות הקרובות אימייל לאישור החשבון. ' +
+  'לא הגיע אימייל? ייתכן שכבר קיים חשבון עם הפרטים שהוזנו. אפשר לנסות להתחבר, או לפנות לתמיכה.';
+
 export function getHebrewAuthError(message: string): string {
   const normalized = message.toLowerCase();
 

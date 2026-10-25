@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { z } from 'zod';
 import {
-  encodeRepAnswer, fieldFromTopic, formatAnswerValue, REP_ANSWER_KIND, REQUESTABLE_FIELDS, requestableFieldSchema,
-  validateAnswerValue, type RequestableField
+  encodeRepAnswer, encodeRepReply, fieldFromTopic, formatAnswerValue, REP_ANSWER_KIND, REP_REPLY_KIND, REP_REPLY_MAX, REQUESTABLE_FIELDS,
+  requestableFieldSchema, validateAnswerValue, type RequestableField
 } from '../../lib/representative-answer';
 import { isOverdue, matchesQuery, OVERDUE_MINUTES, waitingText, type QueueFilter } from '../../lib/representative-queue-view';
 import { CarWiseCarLoader } from '../ui/carwise-car-loader';
@@ -22,7 +22,11 @@ export const requestSchema = z.object({
   // Last four digits only, to tell identical names apart. The full ID is never part of the queue.
   employee_id_last4: z.string().regex(/^\d{4}$/).nullable().optional()
 });
-const answerSchema = z.object({ requestId: z.string().uuid(), field: requestableFieldSchema, value: z.number(), note: z.string().optional(), answeredAt: z.string() });
+// What this representative sent: a structured value for a missing-field request, or free text for a general request.
+const answerSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('field'), requestId: z.string().uuid(), field: requestableFieldSchema, value: z.number(), note: z.string().optional(), answeredAt: z.string() }),
+  z.object({ kind: z.literal('general'), requestId: z.string().uuid(), text: z.string(), answeredAt: z.string() })
+]);
 type Request = z.infer<typeof requestSchema>;
 type Answer = z.infer<typeof answerSchema>;
 const time = (value: string) => new Intl.DateTimeFormat('he-IL', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value));
@@ -116,6 +120,53 @@ export function NationalIdReveal({ request }: { request: Request }) {
     {state.kind === 'error' && <span role="alert" className="text-rose-700">לא ניתן להציג את הפרט כרגע.</span>}
     <span className="text-xs text-slate-500">זמין רק בזמן שהפנייה בטיפולך. כל הצגה נרשמת.</span>
   </div>;
+}
+
+/**
+ * Free-text reply to a GENERAL request (no missing field). It is linked to this request and shown to the employee as a
+ * message; it never changes profile values (missing-field requests keep the structured form and employee approval).
+ */
+export function GeneralReplyForm({ request, onSent }: { request: Request; onSent: (message: string) => void }) {
+  const [text, setText] = useState('');
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState('');
+  const inputId = `reply-${request.id}`;
+  const submit = async () => {
+    if (sending) return;
+    const clean = text.trim();
+    if (!clean) { setError('יש לכתוב תשובה.'); return; }
+    setSending(true); setError('');
+    try {
+      const body = encodeRepReply({ kind: REP_REPLY_KIND, requestId: request.id, text: clean.slice(0, REP_REPLY_MAX), answeredAt: new Date().toISOString() });
+      const response = await fetch(`/api/conversations/${request.conversation_id}/messages`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store',
+        body: JSON.stringify({ body, clientMessageId: crypto.randomUUID() })
+      });
+      if (!response.ok) throw new Error(await readError(response, 'לא הצלחנו לשלוח את התשובה.'));
+      onSent('התשובה נשלחה ותופיע לעובד בשיחה. הפנייה עברה ל"טופלו על ידי".');
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : 'לא הצלחנו לשלוח את התשובה.');
+      setSending(false);
+    }
+  };
+  return <form className="mt-3 grid gap-3 rounded-xl bg-slate-50 p-3 ring-1 ring-slate-200" onSubmit={event => { event.preventDefault(); void submit(); }}>
+    <div>
+      <label htmlFor={inputId} className="block text-sm font-semibold text-slate-800">תשובה לעובד</label>
+      <textarea id={inputId} className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#137c77]"
+        rows={4} maxLength={REP_REPLY_MAX} value={text} onChange={event => setText(event.target.value)} disabled={sending} dir="auto"
+        aria-describedby={`${inputId}-hint`} required />
+      <p id={`${inputId}-hint`} className="mt-1.5 text-xs text-slate-500">
+        פנייה כללית: התשובה תוצג לעובד בשיחה כהודעת נציג, ולא תשנה נתונים בפרופיל. עד {REP_REPLY_MAX.toLocaleString('he-IL')} תווים.
+      </p>
+    </div>
+    {error && <p role="alert" className="rounded-lg bg-rose-50 p-3 text-sm text-rose-800 ring-1 ring-rose-200">{error}</p>}
+    <div>
+      <button type="submit" disabled={sending}
+        className="inline-flex items-center rounded-lg bg-[#137c77] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0f6965] focus:outline-none focus:ring-2 focus:ring-[#137c77] focus:ring-offset-2 disabled:opacity-60">
+        {sending ? <CarWiseCarLoader variant="button" label="בשליחה…" className="cw-on-dark" /> : 'שליחת התשובה'}
+      </button>
+    </div>
+  </form>;
 }
 
 function AnswerForm({ request, field, onSent }: { request: Request; field: RequestableField; onSent: (message: string) => void }) {
@@ -293,10 +344,10 @@ export function RepresentativeConsole({ userId }: { userId: string }) {
           const field = fieldFromTopic(request.topic);
           return <RequestCard key={request.id} accent={isOverdue(request, now) ? 'border-rose-500 ring-rose-200' : 'border-sky-500 ring-slate-200'}
             header={<RequestHeader request={request} field={field} now={now} pill={<Pill tone="mine">בטיפולי</Pill>} />}
-            toggleLabel={field ? 'מענה לפנייה' : 'פרטים'}
+            toggleLabel="מענה לפנייה"
             revealable={request.status === 'claimed' && request.assigned_representative_id === userId && <NationalIdReveal key={request.id} request={request} />}>
             {field ? <AnswerForm request={request} field={field} onSent={message => { setNotice(message); void load(); }} />
-              : <p className="mt-3 text-sm text-amber-800">בפנייה הזו אין שדה חסר מוגדר, ולכן אין כאן טופס תשובה מובנה.</p>}
+              : <GeneralReplyForm request={request} onSent={message => { setNotice(message); void load(); }} />}
           </RequestCard>;
         })}
       </Section>}
@@ -318,11 +369,12 @@ export function RepresentativeConsole({ userId }: { userId: string }) {
             header={<RequestHeader request={request} field={field} now={now} pill={<Pill tone="done">טופל על ידך</Pill>} />}
             toggleLabel="התשובה שנשלחה">
             <dl className="grid gap-2 rounded-lg bg-emerald-50/60 p-3 text-sm ring-1 ring-emerald-100 sm:grid-cols-3">
-              <div><dt className="text-slate-600">התשובה שנשלחה</dt><dd className="mt-0.5 font-bold text-slate-900">{answer ? formatAnswerValue(answer.field, answer.value) : '—'}</dd></div>
+              <div className={answer?.kind === 'general' ? 'sm:col-span-2' : ''}><dt className="text-slate-600">התשובה שנשלחה</dt>
+                <dd className="mt-0.5 whitespace-pre-line font-bold text-slate-900" dir="auto">{!answer ? '—' : answer.kind === 'field' ? formatAnswerValue(answer.field, answer.value) : answer.text}</dd></div>
               <div><dt className="text-slate-600">נשלחה</dt><dd className="mt-0.5 font-medium text-slate-900">{answer ? time(answer.answeredAt) : request.answered_at ? time(request.answered_at) : '—'}</dd></div>
-              {answer?.note && <div className="sm:col-span-3"><dt className="text-slate-600">הערה</dt><dd className="mt-0.5 leading-relaxed text-slate-900">{answer.note}</dd></div>}
+              {answer?.kind === 'field' && answer.note && <div className="sm:col-span-3"><dt className="text-slate-600">הערה</dt><dd className="mt-0.5 leading-relaxed text-slate-900">{answer.note}</dd></div>}
             </dl>
-            <p className="mt-2 text-xs text-slate-500">בשיחה תוצג אפשרות להשתמש בתשובה. היא תישמר בפרופיל רק אחרי אישור בסיכום.</p>
+            <p className="mt-2 text-xs text-slate-500">{field ? 'בשיחה תוצג אפשרות להשתמש בתשובה. היא תישמר בפרופיל רק אחרי אישור בסיכום.' : 'התשובה מוצגת לעובד בשיחה כהודעת נציג, ואינה משנה נתונים בפרופיל.'}</p>
           </RequestCard>;
         })}
       </Section>}

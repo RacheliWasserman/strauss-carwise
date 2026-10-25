@@ -12,6 +12,7 @@ import {calculateNet,displayShekels,type Choice} from '../src/lib/calculator';
 import {runAdvisorTurn,advisorPlanSchema} from '../src/lib/ai/advisor-orchestrator';
 import {InvalidProviderOutput,ProviderFailure} from '../src/lib/ai/providers';
 import type {AdvisorState} from '../src/lib/ai/advisor-state';
+import {advisorStateSchema as productionStateSchema} from './fixtures/production-advisor-state-565e426';
 import {toCalculatorEmployee,toCalculatorOccupation,type FinancialDependencies} from '../src/lib/ai/financial-flow';
 import {decodeCatalogMessage,type CatalogMessage} from '../src/lib/catalog-message';
 import type {AdvisorOccupation} from '../src/lib/occupation-repository';
@@ -34,7 +35,11 @@ const idOf=(name:string)=>catalog.find(car=>car['דגם (כינוי מסחרי)'
 type Plan=Parameters<typeof advisorPlanSchema.parse>[0];
 
 /** One employee with in-memory versioned profile and snapshot stores, shared across conversations. */
-function employee(userId=randomUUID(),account?:{first:string;last:string}) {
+/** schema 'per-topic': the database after migration 202610250001 (one PENDING request per topic), with the feature on. */
+function employee(userId=randomUUID(),account?:{first:string;last:string},options:{schema?:'per-conversation'|'per-topic'}={}) {
+  const perTopic=options.schema==='per-topic';
+  // The feature flag; it starts with the schema and may be switched later (a rollout or a rollback between turns).
+  let multiple=perTopic;
   const versions:EmployeeDataVersionRow[]=[];
   const runs:Array<{id:string;input:CalculationSnapshotInput}>=[];
   const now=()=>new Date().toISOString();
@@ -59,15 +64,17 @@ function employee(userId=randomUUID(),account?:{first:string;last:string}) {
   // Mirrors the schema: one active (open/claimed/answered) request per conversation, unique-violation otherwise.
   const requests:RepresentativeRequestRow[]=[];
   const active=(row:RepresentativeRequestRow)=>['open','claimed','answered'].includes(row.status);
+  const pending=(row:RepresentativeRequestRow)=>['open','claimed'].includes(row.status);
   const representative=vi.fn(async(conversationId:string,owner:string,topic:string)=>{
-    if (requests.some(row=>row.conversation_id===conversationId&&active(row))) throw new Error('An active representative request already exists');
+    if (requests.some(row=>row.conversation_id===conversationId&&(perTopic?pending(row)&&row.topic===topic:active(row)))) throw new Error('An active representative request already exists');
     const row:RepresentativeRequestRow={id:randomUUID(),conversation_id:conversationId,owner_user_id:owner,status:'open',topic,
       assigned_representative_id:null,requested_at:now(),claimed_at:null,answered_at:null,closed_at:null,created_at:now(),updated_at:now()};
     requests.push(row);return {...row};
   });
   const representativeRequests={
     get:vi.fn(async(id:string,conversationId:string,owner:string)=>requests.find(row=>row.id===id&&row.conversation_id===conversationId&&row.owner_user_id===owner)??null),
-    findActive:vi.fn(async(conversationId:string,owner:string)=>requests.find(row=>row.conversation_id===conversationId&&row.owner_user_id===owner&&active(row))??null),
+    findActive:vi.fn(async(conversationId:string,owner:string,topic?:string)=>requests.find(row=>row.conversation_id===conversationId&&row.owner_user_id===owner&&active(row)&&
+      (topic===undefined||row.topic===topic))??null),
     /** Migration 202610210004: the owner cancels their own active request. */
     cancel:vi.fn(async(id:string)=>{const row=requests.find(item=>item.id===id&&item.owner_user_id===userId&&active(item));
       if (!row) return false;Object.assign(row,{status:'cancelled',closed_at:now()});return true;})
@@ -89,8 +96,11 @@ function employee(userId=randomUUID(),account?:{first:string;last:string}) {
     async function process(model?:Plan):Promise<CatalogMessage> {
       if (model) plan.mockResolvedValueOnce(advisorPlanSchema.parse(model));
       const result=await runAdvisorTurn(userId,conversationId,[...messages],state,{occupations:async()=>occupations,plan,
-        catalog:{search,rules:async()=>rules},financial,representative,representativeRequests,firstName:async()=>account?.first??null});
+        catalog:{search,rules:async()=>rules},financial,representative,representativeRequests,firstName:async()=>account?.first??null,
+        multipleRepresentativeRequests:multiple});
       state=JSON.parse(JSON.stringify(result.state));
+      // Rollback safety: with several requests off, every saved state still loads in Production 565e426 (strict schema).
+      if (!multiple) productionStateSchema.parse(state);
       messages.push({...messages.at(-1)!,id:randomUUID(),sender_type:'assistant',sender_user_id:null,body:result.body});
       return decodeCatalogMessage(result.body)!;
     }
@@ -104,7 +114,11 @@ function employee(userId=randomUUID(),account?:{first:string;last:string}) {
     const representativeSays=(body:string,representativeId:string)=>{
       const message:ConversationMessageRow={id:randomUUID(),conversation_id:conversationId,sender_type:'representative',sender_user_id:representativeId,body,client_message_id:null,created_at:now()};
       messages.push(message);
-      for (const row of requests) if (row.conversation_id===conversationId&&row.assigned_representative_id===representativeId&&['claimed','answered'].includes(row.status)) Object.assign(row,{status:'answered',answered_at:now()});
+      // Migration 202610250001: only the request the reply names; before it, every request of that representative.
+      let target:string|undefined;
+      try { target=JSON.parse(body).requestId; } catch { /* plain text */ }
+      for (const row of requests) if (row.conversation_id===conversationId&&row.assigned_representative_id===representativeId&&
+        (perTopic?(target?row.id===target:true)&&row.status==='claimed':['claimed','answered'].includes(row.status))) Object.assign(row,{status:'answered',answered_at:now()});
       return message;
     };
     /** Any sender, for forgery tests. */
@@ -113,7 +127,8 @@ function employee(userId=randomUUID(),account?:{first:string;last:string}) {
     const restore=(saved:unknown)=>{state=saved as AdvisorState;};
     return {turn,retry,representativeSays,append,restore,id:conversationId,plan,get state(){return state!;}};
   }
-  return {userId,versions,runs,financial,representative,representativeRequests,requests,claim,conversation};
+  return {userId,versions,runs,financial,representative,representativeRequests,requests,claim,conversation,
+    setMultipleRequests:(on:boolean)=>{multiple=on;}};
 }
 const fact=(field:string,value:number|string,evidence:string)=>({type:'report_fact',field,value,evidence});
 const approve=(reply:CatalogMessage)=>reply.actions!.find(action=>action.primary)!.body;
@@ -212,6 +227,97 @@ describe('financial waiver what-if outranks generic hypothetical side routing',(
     const reply=await chat.turn('ואם הייתי מנהלת חטיבה, הייתי יכולה לוותר?',misleading);
     expect(reply.purpose).toBe('hypothetical');expect(reply.cards).toEqual([]);expect(reply.calculation).toBeUndefined();
     expect(person.versions).toEqual(before);expect(person.runs).toHaveLength(0);
+  });
+});
+
+describe('an explicit waiver during an open comparison goes through the approved role\'s eligibility',()=>{
+  // Reported case: נהג/ת הפצה (car mandatory, waiver not allowed), PICANTO and LEON in an open comparison.
+  async function comparing(title:string,current:string) {
+    const person=employee();
+    person.versions.push({id:randomUUID(),user_id:person.userId,version:3,status:'confirmed',schema_version:'employee-data-v1',
+      created_at:'2026-10-01T00:00:00.000Z',confirmed_at:'2026-10-01T00:00:00.000Z',display_name:'עובד בדיקה',occupation_title:title,
+      base_salary:14000,commissions:0,bonus:0,employee_pension_percent:6,employee_study_fund_percent:2.5,tax_credit_points:2.25,
+      eligible_children_count:0,current_vehicle_id:idOf(current),current_participation:200});
+    const chat=person.conversation();
+    const compared=await chat.turn('אני רוצה להשוות את PICANTO ו-LEON',{action:'net',goal:'net',filters:{},
+      operations:[{type:'select_vehicles',vehicleIds:[idOf('PICANTO'),idOf('LEON')],evidence:'PICANTO ו-LEON'}]});
+    expect(compared.calculation?.scenarios.map(row=>row.vehicleId)).toEqual([idOf('PICANTO'),idOf('LEON')]);
+    return {person,chat,profile:JSON.parse(JSON.stringify(person.versions)) as EmployeeDataVersionRow[]};
+  }
+  const phrasings=['ואם אוותר על הרכב?','אני רוצה לוותר על הרכב','מה יקרה אם אוותר על הרכב?','אפשר בלי רכב צמוד?','אני לא רוצה את הרכב הצמוד'];
+  // What a model may answer for these messages: none of its side labels may bypass the waiver goal.
+  const plans:Record<string,Plan>={
+    hypothetical:{action:'help',intent:'hypothetical',filters:{}},
+    alternatives:{action:'help',intent:'resume',conversationAct:'alternatives',filters:{}},
+    conversation:{action:'help',intent:'conversation',conversationAct:'advice',filters:{}},
+    help:{action:'help',filters:{}},
+    comparison:{action:'net',goal:'comparison',filters:{}},
+    waiver:{action:'net',goal:'waiver',filters:{}}
+  };
+  const cases=phrasings.flatMap(text=>Object.keys(plans).map(plan=>[text,plan] as const));
+  it.each(cases)('נהג/ת הפצה: "%s" (model: %s) is refused by the company rules, not answered as a hypothetical or a comparison',async(text,plan)=>{
+    const {person,chat,profile}=await comparing('נהג/ת הפצה','YARIS CROSS HSD');
+    const runs=person.runs.length;
+    const reply=await chat.turn(text,plans[plan]);
+    expect(reply.purpose).not.toBe('hypothetical');expect(reply.text).not.toContain('היפותטית');
+    expect(reply.text).not.toContain('עם איזה רכב להשוות');expect(reply.cards).toEqual([]);
+    expect(reply.calculation?.scenarios).toEqual([expect.objectContaining({kind:'waiver',eligible:false,net:null,delta:null})]);
+    expect(reply.text).toContain('הרכב הוא חובה');
+    expect(reply.text.startsWith('לצערי, לפי התפקיד המאושר שלך (נהג/ת הפצה) וכללי החברה, אי אפשר לוותר על הרכב הצמוד')).toBe(true);
+    expect(reply.text).not.toContain('הנה החישוב');
+    // The profile and the comparison stay as they were (only the usual calculation history row may be written).
+    expect(person.versions).toEqual(profile);expect(person.financial.createVersion).not.toHaveBeenCalled();
+    expect(person.financial.confirmVersion).not.toHaveBeenCalled();expect(chat.state.pendingFacts).toEqual([]);
+    expect(chat.state.selectedVehicleIds).toEqual([idOf('PICANTO'),idOf('LEON')]);
+    expect(person.runs.length-runs).toBeLessThanOrEqual(1);
+  });
+  it.each(cases)('מפתח/ת תוכנה: "%s" (model: %s) continues to the existing waiver calculation',async(text,plan)=>{
+    const {person,chat,profile}=await comparing('מפתח/ת תוכנה','BYD DOLPHIN');
+    const reply=await chat.turn(text,plans[plan]);
+    expect(reply.purpose).not.toBe('hypothetical');expect(reply.text).not.toContain('עם איזה רכב להשוות');
+    expect(reply.calculation?.scenarios).toEqual([expect.objectContaining({kind:'waiver',eligible:true,net:expect.any(Number),maintenance:1500})]);
+    expect(person.versions).toEqual(profile);expect(person.financial.createVersion).not.toHaveBeenCalled();
+    expect(chat.state.selectedVehicleIds).toEqual([idOf('PICANTO'),idOf('LEON')]);
+  });
+  it('the refusal is the same whether or not a comparison is open, and the comparison can continue afterwards',async()=>{
+    const {chat}=await comparing('נהג/ת הפצה','YARIS CROSS HSD');
+    const refused=await chat.turn('ואם אוותר על הרכב?',plans.hypothetical);
+    const fresh=await confirmedDriver();
+    const direct=await fresh.conversation().turn('ואם אוותר על הרכב?',plans.hypothetical);
+    expect(refused.calculation?.scenarios).toEqual(direct.calculation?.scenarios);
+    const another=await chat.turn('אני רוצה להשוות לרכב אחר');
+    expect(another.text).toContain('PICANTO');expect(another.text).toContain('עם איזה רכב להשוות');
+  });
+  async function confirmedDriver() {
+    const person=employee();
+    person.versions.push({id:randomUUID(),user_id:person.userId,version:1,status:'confirmed',schema_version:'employee-data-v1',
+      created_at:'2026-10-01T00:00:00.000Z',confirmed_at:'2026-10-01T00:00:00.000Z',display_name:'עובד בדיקה',occupation_title:'נהג/ת הפצה',
+      base_salary:14000,commissions:0,bonus:0,employee_pension_percent:6,employee_study_fund_percent:2.5,tax_credit_points:2.25,
+      eligible_children_count:0,current_vehicle_id:idOf('YARIS CROSS HSD'),current_participation:200});
+    return person;
+  }
+  it('an unclear role is never guessed: the role is asked, and an unrecognised one is referred to a representative',async()=>{
+    const person=await confirmedDriver();person.versions[0].occupation_title='תפקיד שאינו בטבלה';
+    const profile=JSON.parse(JSON.stringify(person.versions));const chat=person.conversation();
+    const asked=await chat.turn('ואם אוותר על הרכב?',plans.hypothetical);
+    expect(asked.calculation).toBeUndefined();expect(asked.text).toContain('מה התפקיד שלך');
+    const unknown=await chat.turn('אני אסטרונאוט',{action:'help',filters:{},
+      operations:[{type:'report_occupation',reportedTitle:'אסטרונאוט',candidateKeys:[],certainty:'uncertain',evidence:'אסטרונאוט'}]});
+    expect(unknown.calculation).toBeUndefined();expect(unknown.text).toContain('נציג');
+    expect(unknown.actions?.some(action=>action.body.includes('#R'))).toBe(true);
+    expect(person.versions).toEqual(profile);expect(person.financial.createVersion).not.toHaveBeenCalled();
+  });
+  it('a negated waiver is not a waiver: "לא רוצה לוותר, רק להשוות לרכב אחר" keeps the comparison',async()=>{
+    const {chat}=await comparing('נהג/ת הפצה','YARIS CROSS HSD');
+    const reply=await chat.turn('אני לא רוצה לוותר על הרכב, רק להשוות לרכב אחר');
+    expect(reply.calculation).toBeUndefined();expect(reply.text).toContain('עם איזה רכב להשוות');
+    expect(chat.state.activeGoal?.kind).not.toBe('waiver');
+  });
+  it('a hypothetical other ROLE stays a side answer and never calculates a waiver for the approved role',async()=>{
+    const {person,chat,profile}=await comparing('נהג/ת הפצה','YARIS CROSS HSD');
+    const reply=await chat.turn('ואם הייתי מפתחת תוכנה, הייתי יכולה לוותר על הרכב?',plans.hypothetical);
+    expect(reply.purpose).toBe('hypothetical');expect(reply.calculation).toBeUndefined();
+    expect(person.versions).toEqual(profile);expect(chat.state.selectedVehicleIds).toEqual([idOf('PICANTO'),idOf('LEON')]);
   });
 });
 
@@ -737,7 +843,7 @@ it('never reads digits inside a model name as an amount',async()=>{
   const {numbersIn}=await import('../src/lib/ai/financial-flow');
   expect(numbersIn('אני רוצה MG4')).toEqual([]);
   expect(numbersIn('בעצם EV3 או ATTO3')).toEqual([]);
-  expect(numbersIn('ATTO 3 ו-18 אלף')).toEqual([3,18000]); // "ATTO 3" is matched as a car separately; amounts still parse.
+  expect(numbersIn('ATTO 3 ו-18 אלף')).toEqual([18000]); // Model numbers are not amounts.
   expect(numbersIn('18k, 2.25 נקודות, 6%')).toEqual([18000,2.25,6]);
 });
 
@@ -1184,7 +1290,8 @@ describe('representative consultation (Phase A)',()=>{
     await chat.turn('18 אלף');
     const next=await chat.turn('לא יודעת');
     expect(next.actions?.some(action=>action.body.includes('#R'))).toBeFalsy();
-    expect(next.text).toContain('אפשר פנייה אחת בכל שיחה');
+    expect(next.text).toContain('לא נפתחה פנייה נוספת');
+    expect(next.text).not.toContain('אפשר פנייה אחת בכל שיחה');
     expect(person.representative).toHaveBeenCalledTimes(1);
     // A request already created by a lost/retried turn is adopted, not duplicated.
     const fresh=employee();const chat2=fresh.conversation();
@@ -1199,7 +1306,9 @@ describe('representative consultation (Phase A)',()=>{
     await chat3.turn('אני מפתחת תוכנה, כמה רכב חשמלי יעלה לי בנטו?',{action:'net',goal:'net',filters:{}});
     const offer3=(await chat3.turn('לא יודעת')).actions!.find(action=>action.body.includes('#R'))!;
     third.requests.push({...fresh.requests[0],id:randomUUID(),conversation_id:chat3.id,owner_user_id:third.userId,topic:'בקשת העובד לשיחה עם נציג'});
-    expect((await chat3.turn(offer3.body)).text).toContain('אפשר פנייה אחת בכל שיחה');
+    const blocked=await chat3.turn(offer3.body);
+    expect(blocked.text).toContain('לא נפתחה פנייה נוספת');
+    expect(blocked.text).not.toContain('אפשר פנייה אחת בכל שיחה');
   });
 });
 
@@ -2372,5 +2481,384 @@ describe('LIVE REGRESSION: an explicit catalog selection selects exactly that ca
       expectSelectedOnly(chat,reply,'CAR-10');expect(reply.text).toContain('ATTO 3');
     }
     expect(person.runs).toHaveLength(0);expect(person.financial.createVersion).not.toHaveBeenCalled();
+  });
+});
+
+describe('several representative requests in one conversation (migration 202610250001, feature on)',()=>{
+  const REP=randomUUID();
+  const PARTICIPATION='שדה חסר: השתתפות חודשית ברכב היום [current_participation]';
+  const CHILDREN='שדה חסר: ילדים עד גיל 23 [eligible_children_count]';
+  const answerBody=(requestId:string,field:string,value:number)=>JSON.stringify({kind:'carwise.rep-answer.v1',requestId,field,value,answeredAt:new Date().toISOString()});
+  const use=(messageId:string)=>`שימוש בתשובת הנציג #Q${messageId.slice(0,8).toUpperCase()}`;
+  const offerOf=(reply:CatalogMessage)=>reply.actions?.find(action=>action.body.includes('#R'));
+  /** Two unknown fields → two requests on different topics, pending at the same time. */
+  async function twoPending() {
+    const person=employee(randomUUID(),undefined,{schema:'per-topic'});const chat=person.conversation();
+    await chat.turn('אני מפתחת תוכנה ורוצה רכב חשמלי. כמה זה ישפיע על הנטו?',{action:'net',goal:'net',filters:{driveType:'חשמלי'}});
+    await chat.turn('שכר 18000, עמלות 0, בונוס 0, פנסיה 6%, השתלמות 2.5%, 2.25 נקודות, היום יש לי NIRO',{action:'net',filters:{},operations:[
+      fact('base_salary',18000,'שכר 18000'),fact('commissions',0,'עמלות 0'),fact('bonus',0,'בונוס 0'),fact('employee_pension_percent',6,'פנסיה 6%'),
+      fact('employee_study_fund_percent',2.5,'השתלמות 2.5%'),fact('tax_credit_points',2.25,'2.25 נקודות'),
+      {type:'report_current_vehicle',hasCar:true,name:'NIRO',evidence:'היום יש לי NIRO'}]});
+    const firstOffer=offerOf(await chat.turn('לא יודעת'))!;
+    await chat.turn(firstOffer.body);
+    const secondOffer=offerOf(await chat.turn('לא יודעת'));
+    expect(secondOffer).toBeTruthy();
+    await chat.turn(secondOffer!.body);
+    // The remaining question (the profile name) is answered; only the two representative fields are still open.
+    await chat.turn('נועה',{action:'net',filters:{},operations:[fact('display_name','נועה','נועה')]});
+    return {person,chat,firstOffer};
+  }
+
+  it('opens a second request on another topic while the first is pending, each with its own id and status',async()=>{
+    const {person,chat}=await twoPending();
+    expect(person.requests.map(row=>[row.topic,row.status])).toEqual([[PARTICIPATION,'open'],[CHILDREN,'open']]);
+    expect(new Set(person.requests.map(row=>row.id)).size).toBe(2);
+    expect(chat.state.representativeRequests?.map(entry=>[entry.field,entry.status])).toEqual([['current_participation','requested'],['eligible_children_count','requested']]);
+  });
+
+  it('never requests the same topic twice while it is pending (an old button cannot add a duplicate)',async()=>{
+    const {person,chat,firstOffer}=await twoPending();
+    const again=await chat.turn(firstOffer.body);
+    expect(again.text).toMatch(/כבר פתוחה|כבר לא בתוקף/);
+    expect(person.requests).toHaveLength(2);
+    expect(person.representative).toHaveBeenCalledTimes(2);
+  });
+
+  it('each answer fills only its own field; both wait for the employee approval before anything is saved',async()=>{
+    const {person,chat}=await twoPending();
+    const [participation,children]=person.requests;
+    person.claim(participation.id,REP);person.claim(children.id,REP);
+    // The same representative answers the children request first: only that request is marked answered.
+    const childrenReply=chat.representativeSays(answerBody(children.id,'eligible_children_count',2),REP);
+    expect([participation.status,children.status]).toEqual(['claimed','answered']);
+    const first=await chat.turn(use(childrenReply.id));
+    expect(first.text).toContain('קיבלתי את תשובת הנציג: ילדים עד גיל 23 2');
+    expect(chat.state.pendingFacts.find(item=>item.field==='eligible_children_count')).toMatchObject({value:2,source:'representative'});
+    expect(chat.state.pendingFacts.some(item=>item.field==='current_participation')).toBe(false);
+    expect(person.versions).toHaveLength(0);
+    const participationReply=chat.representativeSays(answerBody(participation.id,'current_participation',300),REP);
+    const summary=await chat.turn(use(participationReply.id));
+    expect(summary.approval?.rows.find(row=>row.label==='השתתפות חודשית ברכב היום')).toMatchObject({value:'300 ₪',status:'representative'});
+    expect(summary.approval?.rows.find(row=>row.label==='ילדים עד גיל 23')).toMatchObject({value:'2',status:'representative'});
+    expect(person.versions).toHaveLength(0);
+    await chat.turn(approve(summary));
+    expect(person.versions.map(row=>[row.status,row.current_participation,row.eligible_children_count])).toEqual([['confirmed',300,2]]);
+    expect(chat.state.representativeRequests?.map(entry=>entry.status)).toEqual(['used','used']);
+  });
+
+  it('an answer naming one request cannot fill another request field',async()=>{
+    const {person,chat}=await twoPending();
+    const [,children]=person.requests;
+    person.claim(children.id,REP);
+    const forged=chat.representativeSays(answerBody(children.id,'current_participation',300),REP);
+    const reply=await chat.turn(use(forged.id));
+    expect(reply.text).toMatch(/לא מתאימה|לא הצלחתי לאמת/);
+    expect(chat.state.pendingFacts.some(item=>item.field==='current_participation')).toBe(false);
+  });
+
+  it('an answer to another employee request is never used',async()=>{
+    const {person,chat}=await twoPending();
+    const foreign:RepresentativeRequestRow={...person.requests[0],id:randomUUID(),owner_user_id:randomUUID(),status:'answered',assigned_representative_id:REP};
+    person.requests.push(foreign);
+    const message=chat.representativeSays(answerBody(foreign.id,'current_participation',300),REP);
+    const reply=await chat.turn(use(message.id));
+    expect(reply.text).toContain('לא מתאימה');
+    expect(chat.state.pendingFacts.some(item=>item.field==='current_participation')).toBe(false);
+  });
+
+  it('a general request answered in free text no longer blocks a new request in the same conversation (no close step)',async()=>{
+    const person=employee(randomUUID(),undefined,{schema:'per-topic'});const chat=person.conversation();
+    const ask={action:'help' as const,filters:{},operations:[{type:'request_representative',evidence:'נציג'}]};
+    const first=await chat.turn('אני רוצה לדבר עם נציג',ask);
+    await chat.turn(offerOf(first)!.body);
+    const [general]=person.requests;person.claim(general.id,REP);
+    // While it waits, the same topic is not requested twice.
+    expect(offerOf(await chat.turn('אני רוצה לדבר עם נציג',ask))).toBeUndefined();
+    chat.representativeSays(JSON.stringify({kind:'carwise.rep-reply.v1',requestId:general.id,text:'שלום, אפשר לבחור כל רכב מקבוצה ב.',
+      answeredAt:new Date().toISOString()}),REP);
+    expect(general.status).toBe('answered');
+    // The answered request moves to the representative's handled list by itself; the employee can ask again.
+    const again=await chat.turn('יש לי עוד שאלה לנציג',{...ask,operations:[{type:'request_representative',evidence:'לנציג'}]});
+    const opened=await chat.turn(offerOf(again)!.body);
+    expect(opened.text).toContain('פתחתי פנייה לנציג');
+    expect(person.requests.map(row=>row.status)).toEqual(['answered','open']);
+    expect(chat.state.representativeRequests?.map(entry=>entry.status)).toEqual(['used','requested']);
+  });
+
+  it('an answered request stays answered (no close step): its answer is usable later and the history is kept',async()=>{
+    const {person,chat}=await twoPending();
+    const [participation]=person.requests;
+    person.claim(participation.id,REP);
+    const reply=chat.representativeSays(answerBody(participation.id,'current_participation',300),REP);
+    await chat.turn('תודה',{action:'help',intent:'conversation',conversationAct:'acknowledge',filters:{}});
+    const used=await chat.turn(use(reply.id));
+    expect(used.text).toContain('קיבלתי את תשובת הנציג: השתתפות חודשית ברכב היום 300 ₪');
+    expect(participation.status).toBe('answered');
+  });
+
+  it('a third request later in the same conversation, after the earlier ones were answered and used',async()=>{
+    const {person,chat}=await twoPending();
+    const [participation,children]=person.requests;
+    person.claim(participation.id,REP);person.claim(children.id,REP);
+    await chat.turn(use(chat.representativeSays(answerBody(children.id,'eligible_children_count',2),REP).id));
+    const summary=await chat.turn(use(chat.representativeSays(answerBody(participation.id,'current_participation',300),REP).id));
+    await chat.turn(approve(summary));
+    // Later: the pension turns out to be wrong and unknown, so a new request on a new topic.
+    const disputed=await chat.turn('הפרשות לפנסיה לא נכון אבל אני לא יודעת כמה',{action:'help',filters:{}});
+    const offer=offerOf(disputed);
+    expect(offer).toBeTruthy();
+    const opened=await chat.turn(offer!.body);
+    expect(opened.text).toContain('פתחתי פנייה לנציג');
+    expect(person.requests).toHaveLength(3);
+    expect(person.requests[2].topic).toBe('שדה חסר: הפרשה לפנסיה [employee_pension_percent]');
+  });
+
+  /** Flag off: one request (participation unknown) opened in the format Production 565e426 saves. */
+  async function oneRequest(person:ReturnType<typeof employee>) {
+    const chat=person.conversation();
+    await chat.turn('אני מפתחת תוכנה ורוצה רכב חשמלי. כמה זה ישפיע על הנטו?',{action:'net',goal:'net',filters:{driveType:'חשמלי'}});
+    await chat.turn('שכר 18000, עמלות 0, בונוס 0, פנסיה 6%, השתלמות 2.5%, 2.25 נקודות, היום יש לי NIRO',{action:'net',filters:{},operations:[
+      fact('base_salary',18000,'שכר 18000'),fact('commissions',0,'עמלות 0'),fact('bonus',0,'בונוס 0'),fact('employee_pension_percent',6,'פנסיה 6%'),
+      fact('employee_study_fund_percent',2.5,'השתלמות 2.5%'),fact('tax_credit_points',2.25,'2.25 נקודות'),
+      {type:'report_current_vehicle',hasCar:true,name:'NIRO',evidence:'היום יש לי NIRO'}]});
+    await chat.turn(offerOf(await chat.turn('לא יודעת'))!.body);
+    return chat;
+  }
+  describe('moving between versions and flag states (rollout and rollback)',()=>{
+    it('flag off → Production: the saved state has no new key and loads in 565e426; the request is fully kept in it',async()=>{
+      const person=employee();const chat=await oneRequest(person);
+      const [request]=person.requests;
+      expect(chat.state.representativeRequests).toBeUndefined();
+      expect(productionStateSchema.parse(chat.state).representative).toMatchObject({status:'requested',requestId:request.id,field:'current_participation'});
+      person.claim(request.id,REP);
+      const used=await chat.turn(use(chat.representativeSays(answerBody(request.id,'current_participation',300),REP).id));
+      expect(used.text).toContain('קיבלתי את תשובת הנציג');
+      expect(productionStateSchema.parse(chat.state).representative?.usedAnswerIds).toHaveLength(1);
+    });
+    it('Production → new version: a state saved by 565e426 loads and continues, with the flag off or on',async()=>{
+      for (const on of [false,true]) {
+        const person=employee(randomUUID(),undefined,{schema:on?'per-topic':'per-conversation'});
+        person.setMultipleRequests(false);const chat=await oneRequest(person);
+        const saved=productionStateSchema.parse(chat.state); // Exactly what Production stores.
+        chat.restore(saved);person.setMultipleRequests(on);
+        const [request]=person.requests;person.claim(request.id,REP);
+        const used=await chat.turn(use(chat.representativeSays(answerBody(request.id,'current_participation',300),REP).id));
+        expect(used.text).toContain('קיבלתי את תשובת הנציג: השתתפות חודשית ברכב היום 300 ₪');
+      }
+    });
+    it('flag on → off: the next turn saves the Production format again; the latest request keeps working',async()=>{
+      const {person,chat}=await twoPending();
+      expect(chat.state.representativeRequests).toHaveLength(2);
+      person.setMultipleRequests(false);
+      const [participation,children]=person.requests;person.claim(participation.id,REP);person.claim(children.id,REP);
+      // The latest request (children) is the one kept in 'representative': its answer is used.
+      const latest=await chat.turn(use(chat.representativeSays(answerBody(children.id,'eligible_children_count',2),REP).id));
+      expect(latest.text).toContain('קיבלתי את תשובת הנציג: ילדים עד גיל 23 2');
+      expect(chat.state.representativeRequests).toBeUndefined();
+      expect(()=>productionStateSchema.parse(chat.state)).not.toThrow();
+      // An answer to the older request is refused plainly (never applied to a wrong field); the employee can type it.
+      const older=await chat.turn(use(chat.representativeSays(answerBody(participation.id,'current_participation',300),REP).id));
+      expect(older.text).toContain('לא מתאימה');
+      expect(chat.state.pendingFacts.some(item=>item.field==='current_participation')).toBe(false);
+    });
+    it('flag on → Production directly: NOT compatible until the rollback script removes the key (then it loads)',async()=>{
+      const {chat}=await twoPending();
+      const saved=JSON.parse(JSON.stringify(chat.state));
+      expect(()=>productionStateSchema.parse(saved)).toThrow(/representativeRequests/);
+      // supabase/rollback/202610250001_before_rollback_strip_representative_list.sql: removes exactly this key.
+      delete saved.representativeRequests;
+      expect(productionStateSchema.parse(saved).representative).toMatchObject({status:'requested',field:'eligible_children_count'});
+      const {readFileSync}=await import('node:fs');
+      const sql=readFileSync(new URL('../supabase/rollback/202610250001_before_rollback_strip_representative_list.sql',import.meta.url),'utf8')
+        .replace(/^\s*--.*$/gm,'');
+      expect(sql).toContain("SET metadata = metadata #- '{carwise_ai,businessState,representativeRequests}'");
+      expect(sql).toContain("metadata -> 'carwise_ai' -> 'businessState' ? 'representativeRequests'");
+      expect(sql).not.toMatch(/\bDELETE\b|\bDROP\b|\bTRUNCATE\b|\bINSERT\b|SET\s+body/i);
+      expect(sql.match(/\bUPDATE\b/g)).toHaveLength(1);
+    });
+  });
+
+  it('a state saved before the list existed keeps working (its single request is read as one entry)',async()=>{
+    const {representativeEntries}=await import('../src/lib/ai/advisor-state');
+    const requestId=randomUUID();
+    expect(representativeEntries({representative:{status:'requested',code:'ABCDEF12',topic:PARTICIPATION,requestId,field:'current_participation'}}))
+      .toEqual([{requestId,topic:PARTICIPATION,field:'current_participation',status:'requested'}]);
+    expect(representativeEntries({representative:{status:'requested',code:'ABCDEF12',topic:PARTICIPATION,requestId,usedAnswerIds:[randomUUID()]}})[0].status).toBe('used');
+    expect(representativeEntries({representative:{status:'offered',code:'ABCDEF12',topic:PARTICIPATION}})).toEqual([]);
+  });
+});
+
+describe('unknown base salary with an existing representative request',()=>{
+  const text='אני לא יודעת כמה שכר בסיס';
+  const salaryTopic='שדה חסר: שכר בסיס חודשי ברוטו [base_salary]';
+  const offerOf=(reply:CatalogMessage)=>reply.actions?.find(action=>action.body.includes('#R'));
+  function fixture(multiple:boolean,perTopic=multiple) {
+    const person=employee(randomUUID(),undefined,{schema:perTopic?'per-topic':'per-conversation'});
+    person.setMultipleRequests(multiple);
+    person.versions.push({id:randomUUID(),user_id:person.userId,version:1,status:'confirmed',schema_version:'employee-data-v1',
+      created_at:'2026-10-01T00:00:00.000Z',confirmed_at:'2026-10-01T00:00:00.000Z',display_name:'עובדת',occupation_title:'מפתח/ת תוכנה',base_salary:20000,
+      commissions:0,bonus:0,employee_pension_percent:6,employee_study_fund_percent:2.5,tax_credit_points:2.25,eligible_children_count:0,
+      current_vehicle_id:'CAR-05',current_participation:250});
+    return {person,chat:person.conversation()};
+  }
+  const plans=[
+    {action:'help',filters:{}},
+    {action:'net',filters:{},operations:[{type:'unknown_fact',field:'base_salary',evidence:text}]},
+    {action:'catalog',filters:{},operations:[{type:'new_search',evidence:'שכר בסיס'}]}
+  ] as Plan[];
+  for (const multiple of [false,true]) for (const [index,plan] of plans.entries()) {
+    it(`does not duplicate a salary request (multiple=${multiple}, model=${index})`,async()=>{
+      const {person,chat}=fixture(multiple);
+      const first=offerOf(await chat.turn(text,plan));expect(first).toBeTruthy();
+      await chat.turn(first!.body);
+      expect(person.requests.map(row=>[row.topic,row.status])).toEqual([[salaryTopic,'open']]);
+      person.claim(person.requests[0].id,randomUUID());
+      const reply=await chat.turn(text,plan);
+      expect(reply.text).toMatch(/ממתינים לתשובת הנציג|הפנייה לנציג בנושא הזה כבר פתוחה/);
+      expect(reply.text).not.toContain('אפשר פנייה אחת בכל שיחה');
+      expect(reply.text).not.toContain('אפשר גם לפנות לנציג');
+      expect(offerOf(reply)).toBeUndefined();
+      expect(person.representative).toHaveBeenCalledTimes(1);
+      expect(person.requests[0]).toMatchObject({topic:salaryTopic,status:'claimed'});
+      expect(person.versions).toHaveLength(1);
+    });
+    it(`handles a different request safely (multiple=${multiple}, model=${index})`,async()=>{
+      const {person,chat}=fixture(multiple);
+      const general=offerOf(await chat.turn('אני רוצה לדבר עם נציג',{action:'help',filters:{},operations:[{type:'request_representative',evidence:'נציג'}]}));
+      expect(general).toBeTruthy();await chat.turn(general!.body);
+      const existing={...person.requests[0]};
+      const reply=await chat.turn(text,plan);
+      expect(reply.text).toContain('לא אשתמש בערך הקודם של שכר הבסיס');
+      expect(reply.text).not.toContain('אפשר פנייה אחת בכל שיחה');
+      expect(person.requests[0]).toEqual(existing);
+      expect(chat.state.disputedFacts).toContain('base_salary');
+      expect(reply.calculation).toBeUndefined();expect(person.versions).toHaveLength(1);
+      if (multiple) {
+        expect(offerOf(reply)).toBeTruthy();await chat.turn(offerOf(reply)!.body);
+        expect(person.requests.map(row=>row.topic)).toEqual([existing.topic,salaryTopic]);
+        expect(person.representative).toHaveBeenCalledTimes(2);
+      } else {
+        expect(offerOf(reply)).toBeUndefined();
+        expect(reply.text).toContain('לא נפתחה פנייה נוספת');
+        expect(reply.text).not.toContain('אפשר גם לפנות לנציג');
+        expect(person.representative).toHaveBeenCalledTimes(1);
+        expect(chat.state.representativeRequests).toBeUndefined();
+      }
+    });
+  }
+  it('does not promise a second request when the feature is on but the database still has the old schema',async()=>{
+    const {person,chat}=fixture(true,false);
+    const general=offerOf(await chat.turn('אני רוצה לדבר עם נציג',{action:'help',filters:{},operations:[{type:'request_representative',evidence:'נציג'}]}));
+    await chat.turn(general!.body);
+    const reply=await chat.turn(text,plans[0]);expect(offerOf(reply)).toBeTruthy();
+    const rejected=await chat.turn(offerOf(reply)!.body);
+    expect(rejected.text).toContain('לא נפתחה פנייה נוספת');
+    expect(rejected.text).not.toContain('אפשר פנייה אחת בכל שיחה');
+    expect(rejected.text).not.toContain('פתחתי פנייה');
+    expect(person.requests).toHaveLength(1);
+    expect(person.requests[0].topic).not.toBe(salaryTopic);
+  });
+});
+
+describe('context routing regressions',()=>{
+  const approved=(title:string,current:string|null)=>{const person=employee();
+    person.versions.push({id:randomUUID(),user_id:person.userId,version:1,status:'confirmed',schema_version:'employee-data-v1',
+      created_at:'2026-10-01T00:00:00.000Z',confirmed_at:'2026-10-01T00:00:00.000Z',display_name:'עובדת',occupation_title:title,base_salary:20000,
+      commissions:0,bonus:0,employee_pension_percent:6,employee_study_fund_percent:2.5,tax_credit_points:2.25,eligible_children_count:0,
+      current_vehicle_id:current,current_participation:current?250:0});return person;};
+  const show=(label:string,reply:CatalogMessage)=>{
+    expect(reply.text,label).not.toContain('3,000');
+    expect(reply.purpose,label).not.toBe('profile_recall');
+    expect(reply.purpose,label).not.toBe('hypothetical');
+    expect(reply.text,label).not.toContain('התפקיד והפרופיל שלך לא השתנו');
+  };
+  it('keeps a catalog ID as a vehicle selection while salary is pending, even with a false model fact',async()=>{
+    const person=employee();const chat=person.conversation();
+    show('1a-start',await chat.turn('אני מפתחת תוכנה ורוצה רכב חשמלי. כמה זה ישפיע על הנטו?',{action:'net',goal:'net',filters:{driveType:'חשמלי'}}));
+    expect(chat.state.pendingField).toBe('base_salary');
+    show('1a-model-help',await chat.turn('אני רוצה BYD DOLPHIN (CAR-03)',{action:'help',filters:{}}));
+    expect(chat.state.pendingFacts.some(item=>item.field==='base_salary')).toBe(false);
+    expect(chat.state.selectedVehicleIds).toEqual(['CAR-03']);
+    const p2=employee();const c2=p2.conversation();
+    await c2.turn('אני מפתחת תוכנה ורוצה רכב חשמלי. כמה זה ישפיע על הנטו?',{action:'net',goal:'net',filters:{driveType:'חשמלי'}});
+    show('1b-model-fact',await c2.turn('אני רוצה BYD DOLPHIN (CAR-03)',{action:'net',filters:{},operations:[{type:'select_vehicles',vehicleIds:['CAR-03'],evidence:'CAR-03'},fact('base_salary',3,'CAR-03')]}));
+    expect(c2.state.pendingFacts.some(item=>item.field==='base_salary')).toBe(false);
+    expect(c2.state.selectedVehicleIds).toEqual(['CAR-03']);
+  });
+  it('calculates a named vehicle against the current vehicle despite a model recall label',async()=>{
+    const person=approved('מנהל/ת פיתוח','CAR-13');const chat=person.conversation();
+    const reply=await chat.turn('כמה BYD Atto 3 ישנה לי בנטו לעומת הרכב שיש לי היום?',{action:'net',goal:'net',filters:{}});
+    show('2a',reply);
+    expect(reply.calculation?.scenarios.some(row=>row.vehicleId==='CAR-10')).toBe(true);
+    expect(chat.state.selectedVehicleIds).toEqual(['CAR-10']);
+    expect(person.versions).toHaveLength(1);
+    const c2=approved('מנהל/ת פיתוח','CAR-13').conversation();
+    const recalled=await c2.turn('כמה BYD Atto 3 ישנה לי בנטו לעומת הרכב שיש לי היום?',{action:'help',intent:'profile_recall',recallTopic:'current_vehicle',filters:{}});
+    show('2b-recall-model',recalled);
+    expect(recalled.calculation?.scenarios.some(row=>row.vehicleId==='CAR-10')).toBe(true);
+  });
+  it('offers electric vehicles for a vehicle what-if across model labels without changing the profile',async()=>{
+    for (const plan of [{action:'help',intent:'hypothetical',filters:{}},{action:'catalog',filters:{driveType:'חשמלי'}},{action:'net',goal:'net',filters:{driveType:'חשמלי'}},{action:'help',filters:{}}] as Plan[]) {
+      const person=approved('מנהל/ת פיתוח','CAR-13');const chat=person.conversation();
+      const before=structuredClone(person.versions);
+      const reply=await chat.turn('אם אעבור לרכב חשמלי, כמה זה ישנה לי בנטו?',plan);
+      show('3-'+JSON.stringify(plan),reply);
+      expect(reply.cards.length).toBeGreaterThan(0);
+      expect(reply.cards.every(card=>card.drive_type==='חשמלי')).toBe(true);
+      expect(chat.state.goal).toBe('net');
+      expect(chat.state.pendingFacts).toEqual([]);
+      expect(person.versions).toEqual(before);
+    }
+    const fresh=employee().conversation();
+    show('3-noprofile',await fresh.turn('אם אעבור לרכב חשמלי, כמה זה ישנה לי בנטו?',{action:'help',intent:'hypothetical',filters:{}}));
+    expect(fresh.state.pendingQuestion).toBe('occupation');
+  });
+  it('ignores hypothetical current-car and salary facts proposed by the model',async()=>{
+    const person=approved('מנהל/ת פיתוח','CAR-13');const chat=person.conversation();
+    const before=structuredClone(person.versions);
+    await chat.turn('אם אעבור לרכב חשמלי, כמה זה ישנה לי בנטו?',{action:'help',intent:'hypothetical',filters:{},operations:[
+      {type:'report_current_vehicle',hasCar:false,evidence:'אם אעבור לרכב חשמלי'},
+      fact('current_participation',0,'אם אעבור לרכב חשמלי')]});
+    expect(chat.state.pendingFacts).toEqual([]);
+    expect(person.versions).toEqual(before);
+    expect(chat.state.occupation?.match?.title).toBe('מנהל/ת פיתוח');
+  });
+  it.each(['03','3','CAR-03'])('rejects a salary fact whose model evidence is sliced from an ID: %s',async evidence=>{
+    const chat=employee().conversation();
+    await chat.turn('אני מפתחת תוכנה ורוצה רכב חשמלי. כמה זה ישפיע על הנטו?',{action:'net',filters:{}});
+    const reply=await chat.turn('אני רוצה BYD DOLPHIN (CAR-03)',{action:'net',filters:{},operations:[fact('base_salary',3,evidence)]});
+    expect(chat.state.pendingFacts.some(item=>item.field==='base_salary')).toBe(false);
+    expect(chat.state.selectedVehicleIds).toEqual(['CAR-03']);
+    expect(reply.text).not.toContain('3,000');
+  });
+  it('offers electric alternatives instead of calculating an earlier hybrid selection',async()=>{
+    const person=approved('מנהל/ת פיתוח','CAR-13');const chat=person.conversation();
+    await chat.turn('אני רוצה YARIS CROSS HSD (CAR-02)',{action:'catalog',filters:{}});
+    expect(chat.state.selectedVehicleIds).toEqual(['CAR-02']);
+    const before=structuredClone(person.versions);
+    const reply=await chat.turn('אם אעבור לרכב חשמלי, כמה זה ישנה לי בנטו?',{action:'help',intent:'hypothetical',filters:{}});
+    expect(reply.cards.length).toBeGreaterThan(0);
+    expect(reply.cards.every(card=>card.drive_type==='חשמלי')).toBe(true);
+    expect(chat.state.selectedVehicleIds).toEqual([]);
+    expect(person.versions).toEqual(before);
+  });
+  it.each([['18,500',18500],['18500',18500],['18 אלף',18000],['2.5',2.5],['0',0],
+    ['CAR-03',null],['CAR-00',null],['MG4',null],['EV3',null],['ATTO 3',null],['MAZDA 3',null],
+    ['ATTO-3',null],['BYD ATTO 3 ושכר 18,500',18500]] as const)('parses monetary numbers without model identifiers: %s',async(text,value)=>{
+    const {numbersIn}=await import('../src/lib/ai/financial-flow');
+    expect(numbersIn(text)).toEqual(value===null?[]:[value]);
+  });
+  it.each(['18,500','18500','18 אלף'])('still collects an actual pending salary: %s',async salary=>{
+    const person=employee();const chat=person.conversation();
+    await chat.turn('אני מפתחת תוכנה ורוצה רכב חשמלי. כמה זה ישפיע על הנטו?',{action:'net',filters:{}});
+    await chat.turn(salary,{action:'help',filters:{}});
+    expect(chat.state.pendingFacts.find(item=>item.field==='base_salary')?.value).toBe(salary==='18 אלף'?18000:18500);
+  });
+  it.each(['מה הרכב הנוכחי שלי?','איזה רכב יש לי היום?'])('preserves real current-car recall: %s',async text=>{
+    const chat=approved('מנהל/ת פיתוח','CAR-13').conversation();
+    const reply=await chat.turn(text,{action:'net',filters:{}});
+    expect(reply.purpose).toBe('profile_recall');
+    expect(reply.text).toContain('MAZDA 3');
+    expect(reply.calculation).toBeUndefined();
   });
 });

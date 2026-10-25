@@ -15,6 +15,7 @@ vi.mock('@/lib/representative-request-repository', () => ({ listRepresentativeQu
 import { POST as register } from '../src/app/api/auth/register/route';
 import { POST as completeIdentity } from '../src/app/api/profile/identity/route';
 import { GET as representativeQueue } from '../src/app/api/representative-requests/route';
+import { REGISTRATION_RECEIVED } from '../src/lib/auth-errors';
 
 const ID = '039337423';
 const valid = { email: 'new.employee@example.com', password: 'long-enough-1', firstName: 'רחלי', lastName: 'כהן', nationalId: '39337423' };
@@ -90,6 +91,57 @@ describe('server-side employee sign-up', () => {
   it('identity storage not deployed yet (migration pending): the account still works; profile completion follows later', async () => {
     mocks.create.mockResolvedValue('unavailable');
     expect((await signUp(valid)).status).toBe(200);expect(mocks.remove).not.toHaveBeenCalled();
+  });
+  it('every sign-up that waits for confirmation gets ONE truthful answer that never claims an e-mail was sent', async () => {
+    const answers: Array<{ status: number; body: unknown }> = [];
+    const record = async (response: Response) => answers.push({ status: response.status, body: await response.json() });
+    await record(await signUp(valid)); // A new account.
+    mocks.signUp.mockResolvedValue({ data: { user: newUser([]), session: null }, error: null });
+    await record(await signUp(valid)); // An address that already has an account.
+    mocks.signUp.mockResolvedValue({ data: { user: newUser(), session: null }, error: null });
+    mocks.inUse.mockResolvedValue(true);
+    await record(await signUp({ ...valid, email: 'someone.else@example.com' })); // An ID of another account.
+    mocks.inUse.mockResolvedValue(false);mocks.create.mockResolvedValue('conflict');
+    await record(await signUp(valid)); // The same ID registered concurrently: the new account was removed.
+    expect(answers.every(answer => JSON.stringify(answer) === JSON.stringify(answers[0]))).toBe(true);
+    expect(answers[0]).toEqual({ status: 200, body: { status: 'confirm_email', message: REGISTRATION_RECEIVED } });
+    expect(REGISTRATION_RECEIVED).not.toMatch(/נשלח אימייל|נשלחה|הצלחה|נוצר/);
+    expect(REGISTRATION_RECEIVED).toContain('ייתכן שכבר קיים חשבון');
+  });
+  it('a duplicate ID creates, changes and removes no account, and the ID is never in the answer or the logs', async () => {
+    mocks.inUse.mockResolvedValue(true);
+    const response = await signUp({ ...valid, email: 'someone.else@example.com' });
+    expect(mocks.signUp).not.toHaveBeenCalled();expect(mocks.create).not.toHaveBeenCalled();
+    expect(mocks.remove).not.toHaveBeenCalled();expect(mocks.signOut).not.toHaveBeenCalled();
+    const body = JSON.stringify(await response.json());
+    expect(body).not.toContain(ID.slice(1));expect(body).not.toContain(ID.slice(-4));
+    expect(logged()).not.toContain(ID.slice(1));expect(logged()).not.toContain('someone.else@example.com');
+    expect(logged()).toContain('identity_conflict');
+  });
+  it('invalid data and temporary failures are errors, never the confirmation answer', async () => {
+    const invalid = await signUp({ ...valid, nationalId: '123456789' });
+    expect(invalid.status).toBe(400);expect(await invalid.json()).toEqual({ error: expect.stringContaining('תעודת הזהות') });
+    mocks.inUse.mockResolvedValue(null); // The uniqueness check is unavailable: nothing is created.
+    const unavailable = await signUp(valid);
+    expect(unavailable.status).toBe(503);expect((await unavailable.json()).status).toBeUndefined();
+    expect(mocks.signUp).not.toHaveBeenCalled();
+    mocks.inUse.mockResolvedValue(false);
+    mocks.signUp.mockResolvedValue({ data: { user: null, session: null }, error: { message: 'Email rate limit exceeded' } });
+    const limited = await signUp(valid);
+    expect(limited.status).toBe(429);expect((await limited.json()).status).toBeUndefined();
+    mocks.signUp.mockResolvedValue({ data: { user: newUser(), session: null }, error: null });
+    mocks.create.mockResolvedValue('failed');mocks.remove.mockResolvedValue(true);
+    const failed = await signUp(valid);
+    expect(failed.status).toBe(500);expect((await failed.json()).error).toContain('לא הושלמה');
+  });
+  it('the form shows the confirmation answer as a neutral notice, never as a green success', async () => {
+    const { readFileSync } = await import('node:fs');
+    const form = readFileSync(new URL('../src/components/auth-form.tsx', import.meta.url), 'utf8');
+    expect(form).not.toContain('נשלח אימייל');
+    expect(form).toMatch(/if \(response\.ok\) \{[^}]*setMessageTone\('notice'\)[^}]*REGISTRATION_RECEIVED/);
+    expect(form).toMatch(/messageTone === 'notice' \? 'auth-notice' : 'auth-success'/);
+    const css = readFileSync(new URL('../src/app/globals.css', import.meta.url), 'utf8');
+    expect(css).toMatch(/\.auth-notice\{/);
   });
   it('rejects cross-site requests and repeated attempts', async () => {
     expect((await signUp(valid, { origin: 'https://evil.example' })).status).toBe(403);

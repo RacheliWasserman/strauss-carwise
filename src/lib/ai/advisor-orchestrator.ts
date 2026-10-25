@@ -6,7 +6,7 @@ import { catalogFiltersSchema, decodeCatalogMessage, encodeCatalogMessage, group
 import { advanceFinancialFlow, simulateSalary, applyFinancialOperations, CORRECTION_REQUEST, defaultFinancialDependencies, labeledCorrections, numbersIn,
   type FinancialDependencies, type FinancialNote, type FinancialOperation } from './financial-flow';
 import type { ConversationMessageRow } from '../conversation-repository';
-import { advisorStateSchema, factFieldSchema, type AdvisorState, type FactField } from './advisor-state';
+import { advisorStateSchema, awaitingRepresentative, factFieldSchema, putRepresentativeEntry, representativeEntries, withoutRepresentativeList, type AdvisorState, type FactField } from './advisor-state';
 import { catalogPlanSchema, generateCatalogReply, type CatalogDependencies } from './catalog-advisor';
 import { accumulateCatalogFilters } from './catalog-search-state';
 import { buildContext, redactSecrets } from './context';
@@ -17,7 +17,7 @@ import { searchAdvisorVehicles } from '../advisor-catalog-service';
 import { getCalculationRules } from '../rules-repository';
 import { activeCatalog, joinNames, selectableForGroup, vehiclesMentioned, vehiclesNamed, type CatalogRow } from './vehicle-selection';
 import { MODEL_ALIASES, normalizeVehicleText } from './vehicle-identification';
-import { decodeRepAnswer, fieldFromTopic, formatAnswerValue, REQUESTABLE_FIELDS } from '../representative-answer';
+import { decodeRepAnswer, decodeRepReply, fieldFromTopic, formatAnswerValue, REQUESTABLE_FIELDS } from '../representative-answer';
 import type { RepresentativeRequestRow } from '../representative-request-repository';
 import { applyRepresentativeValue, CURRENT_VEHICLE_TOPIC, disputedFieldsIn, GENERAL_CORRECTION_QUESTION, generalCorrectionIntent, hypothetical, questionFor, unknownFieldsIn } from './financial-flow';
 import { decodePayslipReview, PAYSLIP_FIELD_ORDER } from '../payslip/payslip-contract';
@@ -108,12 +108,17 @@ type Dependencies = {
   /** Employee-scoped request reads (RLS: own requests), to verify answers and adopt a retried request. */
   representativeRequests?:{
     get:(requestId:string, conversationId:string, userId:string) => Promise<RepresentativeRequestRow|null>;
-    findActive:(conversationId:string, userId:string) => Promise<RepresentativeRequestRow|null>;
+    findActive:(conversationId:string, userId:string, topic?:string) => Promise<RepresentativeRequestRow|null>;
     /** Cancels the employee's own open request once they supplied the field themselves (best effort). */
     cancel?:(requestId:string) => Promise<boolean>;
   };
   /** The signed-in account's first name for the greeting; never sent to a model. */
   firstName?:(userId:string) => Promise<string|null>;
+  /**
+   * Several representative requests per conversation (one pending per topic). Needs migration 202610250001; until it
+   * is applied and CARWISE_MULTIPLE_REP_REQUESTS=true is set, the previous rule stays: one request per conversation.
+   */
+  multipleRepresentativeRequests?:boolean;
 };
 async function accountFirstName(userId:string) {
   const {getOwnIdentity}=await import('../identity/identity-repository');
@@ -147,7 +152,9 @@ const MAX_COMPARED=6;
 const EXPLICIT_NEW_SEARCH=/(?:חיפוש חדש|חיפוש מחדש|נתחיל מחדש|חפשי מחדש|חפש מחדש|להתחיל מחדש)/u;
 const WAIVER_INTENT=new RegExp('(?:^|[^\\p{L}])[ולשה]?(?:לוותר|אוותר|ויתור|בוויתור|מוותרת|מוותר)(?=$|[^\\p{L}])'+
   '|לא\\s+(?:רוצה|צריכה|צריך|מעוניינת|מעוניין)\\s+(?:את\\s+)?ה?רכב(?:\\s+(?:צמוד|חברה|הצמוד))?(?=\\s*(?:$|[,.!?]))|בלי\\s+רכב\\s+צמוד','u');
-const ONE_REQUEST='בשיחה הזו כבר נפתחה פנייה לנציג, ואפשר פנייה אחת בכל שיחה. אפשר לבדוק את הנתון בתלוש השכר, או לפתוח שיחה חדשה לשאלה נוספת.';
+/** "לא רוצה לוותר", "בלי לוותר": the waiver word negated is not a waiver request. */
+const NEGATED_WAIVER=/(?:^|[^\p{L}])(?:לא|אל|בלי|מבלי)\s+(?:(?:רוצה|רוצים|מתכוון|מתכוונת|מעוניין|מעוניינת|צריך|צריכה|הולך|הולכת)\s+)?(?:לוותר|אוותר|נוותר)(?=$|[^\p{L}])/u;
+const ADDITIONAL_REQUEST_UNAVAILABLE='לא נפתחה פנייה נוספת. אפשר לברר את הנתון בתלוש השכר או אצל צוות השכר, ולכתוב אותו כאן כשיהיה בידך.';
 const APPROVAL_CODE=/#([A-F0-9]{8})(?![A-F0-9])/;
 const REPRESENTATIVE_CODE=/#R([A-F0-9]{8})(?![A-F0-9])/;
 const FINANCIAL_OPERATIONS=['report_fact','unknown_fact','report_current_vehicle'];
@@ -256,12 +263,18 @@ export function perTurnReferenceData(dependencies:Dependencies):Dependencies {
 }
 
 type Track = {stage:string};
+/** Several representative requests per conversation (needs migration 202610250001); off by default. */
+const multipleRequestsEnabled=(dependencies:Dependencies)=>dependencies.multipleRepresentativeRequests??process.env.CARWISE_MULTIPLE_REP_REQUESTS==='true';
 /** Runs one turn; any failure carries the stage it happened in, for sanitized diagnostics. */
 export async function runAdvisorTurn(userId:string, conversationId:string, history:ConversationMessageRow[],
   previous:AdvisorState|null = null, dependencies:Dependencies = {}) {
   const track:Track={stage:'scope'};
-  try { return await advisorTurn(track,userId,conversationId,history,previous,perTurnReferenceData(dependencies)); }
-  catch (error) {
+  try {
+    // Several requests off: the saved state keeps the format the previous version reads (also after it was on).
+    if (multipleRequestsEnabled(dependencies)) return await advisorTurn(track,userId,conversationId,history,previous,perTurnReferenceData(dependencies));
+    const result=await advisorTurn(track,userId,conversationId,history,previous&&withoutRepresentativeList(previous),perTurnReferenceData(dependencies));
+    return {...result,state:withoutRepresentativeList(result.state)};
+  } catch (error) {
     if (typeof error==='object' && error!==null && !('advisorStage' in error)) Object.assign(error,{advisorStage:track.stage});
     throw error;
   }
@@ -269,6 +282,7 @@ export async function runAdvisorTurn(userId:string, conversationId:string, histo
 
 async function advisorTurn(track:Track, userId:string, conversationId:string, history:ConversationMessageRow[],
   previous:AdvisorState|null, dependencies:Dependencies) {
+  const multipleRequests=multipleRequestsEnabled(dependencies);
   const latest = history.at(-1);
   if (!latest || latest.conversation_id !== conversationId || latest.sender_type !== 'employee' || latest.sender_user_id !== userId ||
     history.some(message=>message.conversation_id !== conversationId)) throw new Error('Invalid advisor scope');
@@ -286,6 +300,17 @@ async function advisorTurn(track:Track, userId:string, conversationId:string, hi
     if (!state.activeGoal&&state.goal==='waiver') state.activeGoal={kind:'waiver'};
     else if (!state.activeGoal&&['net','comparison'].includes(state.goal)&&state.selectedVehicleIds?.length) state.activeGoal={kind:'vehicles',vehicleIds:state.selectedVehicleIds};
     state.goalTracking=1;
+  }
+  // A general request is handled once its representative replied here: it is no longer awaited, and a new request
+  // on the same topic may be opened (an answered request is not pending in the database after migration 202610250001).
+  if (multipleRequests) {
+    const replied=new Set(history.flatMap(message=>{
+      const reply=message.sender_type==='representative'?decodeRepReply(message.body):null;
+      return reply?[reply.requestId]:[];
+    }));
+    for (const entry of representativeEntries(state)) {
+      if (entry.status==='requested'&&!entry.field&&replied.has(entry.requestId)) putRepresentativeEntry(state,{...entry,status:'used'});
+    }
   }
   const searchBefore=JSON.stringify(state.preferences);
   let occupations:AdvisorOccupation[] = [];
@@ -305,7 +330,10 @@ async function advisorTurn(track:Track, userId:string, conversationId:string, hi
     state:advisorStateSchema.parse(state)});
   // A representative request is only created after the employee presses the offered, code-bound button.
   const offerRepresentative=(topic:string):MessageAction[] => {
-    if (state.representative?.status==='requested') return [];
+    // With several requests allowed, only the same topic is not requested twice while pending; otherwise (the
+    // database before migration 202610250001) a conversation keeps its single request.
+    if (multipleRequests?representativeEntries(state).some(entry=>entry.status==='requested'&&entry.topic===topic)
+      :state.representative?.status==='requested') return [];
     const code=createHash('sha256').update(`${conversationId}|${topic}|${state.revision}`).digest('hex').slice(0,8).toUpperCase();
     const field=fieldFromTopic(topic)??(topic===CURRENT_VEHICLE_TOPIC?'current_vehicle_id' as const:undefined);
     state.representative={status:'offered',code,topic,...(field?{field}:{})};
@@ -342,7 +370,7 @@ async function advisorTurn(track:Track, userId:string, conversationId:string, hi
   if (hypothetical(latest.body)&&detectOccupation(latest.body,occupations,{partial:true})) return answerHypothetical();
   const requests=dependencies.representativeRequests??{
     get:async(requestId:string,conversation:string,user:string)=>(await import('../representative-request-repository')).getEmployeeRepresentativeRequest(requestId,conversation,user),
-    findActive:async(conversation:string,user:string)=>(await import('../representative-request-repository')).findActiveRepresentativeRequest(conversation,user),
+    findActive:async(conversation:string,user:string,topic?:string)=>(await import('../representative-request-repository')).findActiveRepresentativeRequest(conversation,user,topic),
     cancel:async(requestId:string)=>(await import('../representative-request-repository')).cancelOwnRepresentativeRequest(requestId)
   };
 
@@ -367,12 +395,14 @@ async function advisorTurn(track:Track, userId:string, conversationId:string, hi
       if (!(error instanceof Error && error.message.includes('active representative request'))) {
         return respond('לא הצלחתי לפתוח פנייה לנציג כרגע. אפשר לנסות שוב.',{actions:[{label:'ניסיון חוזר',body:`בקשה לפתוח פנייה לנציג #R${current.code}`}]});
       }
-      // Only one active request per conversation. A retry of this same request is adopted; anything else is said plainly.
+      // A pending request on this topic already exists (a retry): it is adopted. Anything else means the database still
+      // allows one request per conversation (before migration 202610250001), which is said plainly.
       let active:RepresentativeRequestRow|null=null;
-      try { active=await requests.findActive(conversationId,userId); } catch { /* Reported below as unavailable. */ }
-      if (!active||active.topic!==current.topic) return respond(ONE_REQUEST);
+      try { active=await requests.findActive(conversationId,userId,current.topic); } catch { /* Reported below as unavailable. */ }
+      if (!active||active.topic!==current.topic) return respond(ADDITIONAL_REQUEST_UNAVAILABLE);
       state.representative={...current,status:'requested',requestId:active.id};
     }
+    putRepresentativeEntry(state,{requestId:state.representative.requestId!,topic:current.topic,...(current.field?{field:current.field}:{}),status:'requested'});
     // Keep the question that is still on screen visible, so the next short answer clearly belongs to it.
     const still=state.pendingField&&state.pendingField!==current.field?` בינתיים, ${questionFor(state.pendingField)}`:' בינתיים אפשר להמשיך.';
     return respond(`פתחתי פנייה לנציג${about} ✓ כשתגיע תשובה היא תופיע כאן, ואפשר יהיה לבחור אם להשתמש בה.${still}`);
@@ -386,13 +416,15 @@ async function advisorTurn(track:Track, userId:string, conversationId:string, hi
     const answer=message?decodeRepAnswer(message.body):null;
     const current=state.representative;
     if (!message||!answer) return respond('לא מצאתי את תשובת הנציג הזו בשיחה, ולכן לא השתמשתי בה.');
-    if (current?.usedAnswerIds?.includes(message.id)) answerNote='כבר השתמשת בתשובה הזו של הנציג.';
+    // Each answer belongs to its own request (several may be open): matched by the request id it carries.
+    const entry=representativeEntries(state).find(item=>item.requestId===answer.requestId);
+    if (current?.usedAnswerIds?.includes(message.id)||entry?.status==='used') answerNote='כבר השתמשת בתשובה הזו של הנציג.';
     // A late answer never replaces a value the employee gave after opening the request.
-    else if (current?.status==='superseded'&&current.requestId===answer.requestId) {
+    else if (entry?.status==='superseded') {
       return respond('הפרט הזה עודכן על ידך אחרי פתיחת הפנייה, ולכן תשובת הנציג לא נכנסה לחישוב. הערך שכתבת נשאר בתוקף.');
     }
     else {
-      if (!current||current.status!=='requested'||!current.requestId||current.requestId!==answer.requestId||(current.field&&current.field!==answer.field)) {
+      if (!entry||entry.status!=='requested'||(entry.field&&entry.field!==answer.field)) {
         return respond('התשובה הזו לא מתאימה לשאלה הפתוחה בשיחה, ולכן לא השתמשתי בה.');
       }
       let request:RepresentativeRequestRow|null=null;
@@ -404,7 +436,8 @@ async function advisorTurn(track:Track, userId:string, conversationId:string, hi
       if (!verified) return respond('לא הצלחתי לאמת את התשובה מול הפנייה לנציג, ולכן לא השתמשתי בה.');
       const problem=applyRepresentativeValue(state,answer.field,answer.value,latest.id);
       if (problem) return respond(`הערך שהנציג מסר לא עבר בדיקה, ולכן לא השתמשתי בו. ${problem}`);
-      state.representative={...current,usedAnswerIds:[...(current.usedAnswerIds??[]),message.id].slice(-10)};
+      putRepresentativeEntry(state,{...entry,status:'used'});
+      if (current) state.representative={...current,usedAnswerIds:[...(current.usedAnswerIds??[]),message.id].slice(-10)};
       answerNote=`קיבלתי את תשובת הנציג: ${REQUESTABLE_FIELDS[answer.field].label} ${formatAnswerValue(answer.field,answer.value)}. הערך יישמר בפרופיל רק אחרי אישור הסיכום.`;
     }
   }
@@ -424,9 +457,15 @@ async function advisorTurn(track:Track, userId:string, conversationId:string, hi
   // is open: that button is still on screen).
   const netCheck=['next_step','comparison'].includes(previous?.pendingQuestion??'')&&Boolean(state.selectedVehicleIds?.length)&&/נטו/u.test(latest.body)&&
     !numbersIn(withoutCarNames).length&&latest.body.length<=120;
+  // A waiver in the employee's own words ("ואם אוותר על הרכב?", "אני רוצה לוותר על הרכב"), not negated and not about
+  // another role ("ואם הייתי מנהלת חטיבה, הייתי יכולה לוותר?" stays a hypothetical side answer). It outranks the
+  // model's side labels and an open comparison, so the approved role's eligibility always decides it.
+  const roleWhatIf=(hypothetical(latest.body)||/(?:הייתי|אילו)/u.test(latest.body))&&
+    (/(?:בתפקיד|מקצוע|עיסוק)/u.test(latest.body)||Boolean(detectOccupation(latest.body,occupations,{partial:true})));
+  const waiverWords=!direct&&WAIVER_INTENT.test(latest.body)&&!NEGATED_WAIVER.test(latest.body)&&!roleWhatIf;
   // "אני רוצה להשוות לרכב אחר" with a car selected: keep the selection and ask which car to add. Understood without a
   // model and never treated as a selection or a new search (a mentioned or displayed car is not a chosen car).
-  let compareAnother=!direct&&!netCheck&&Boolean(state.selectedVehicleIds?.length)&&COMPARE_WORD.test(latest.body)&&COMPARE_ANOTHER.test(latest.body)&&
+  let compareAnother=!direct&&!netCheck&&!waiverWords&&Boolean(state.selectedVehicleIds?.length)&&COMPARE_WORD.test(latest.body)&&COMPARE_ANOTHER.test(latest.body)&&
     !/[A-Za-z]{2,}|CAR-\d+/iu.test(latest.body)&&!shownNames.some(name=>latest.body.toLocaleLowerCase().includes(name.toLocaleLowerCase()))&&latest.body.length<=120;
   // "חישוב נטו לכל הרכבים שהוצגו", "להשוות את כולם": every car ALREADY SHOWN, in the employee's own words. A choice
   // (when they fit in one comparison), not a new search.
@@ -480,15 +519,35 @@ async function advisorTurn(track:Track, userId:string, conversationId:string, hi
       plan=understood;
     }
   }
+  // Explicit vehicle net questions outrank erroneous recall and role-hypothetical model labels.
+  // Role and waiver scenarios retain their dedicated routes. A vehicle what-if supplies no profile facts.
+  const vehicleNetQuestion=!direct&&!roleWhatIf&&!waiverWords&&/נטו/u.test(latest.body)&&
+    /רכב|חשמלי|היברידי|בנזין|[A-Za-z]{2,}/u.test(latest.body);
+  const vehicleWhatIf=vehicleNetQuestion&&(hypothetical(latest.body)||/(?:הייתי|אילו|היפותטי)/u.test(latest.body));
+  if (vehicleNetQuestion) {
+    plan=advisorPlanSchema.parse({...plan,action:'net',goal:'net',intent:'workflow',conversationAct:undefined,
+      filters:{...plan.filters,...(/חשמלי/u.test(latest.body)?{driveType:'חשמלי'}:{})},
+      operations:vehicleWhatIf?plan.operations.filter(operation=>operation.type==='select_vehicles'):plan.operations});
+    // A generic electric what-if cannot price an earlier selection of a different drive type.
+    if (vehicleWhatIf&&/רכב חשמלי/u.test(latest.body)&&!/[A-Za-z]{2,}/u.test(latest.body)&&state.selectedVehicleIds?.length) {
+      const rows=await activeCatalog(dependencies.catalog?.search??searchAdvisorVehicles);
+      if (!state.selectedVehicleIds.every(id=>rows.some(row=>row.id===id&&row.drive_type==='חשמלי'))) {
+        state.selectedVehicleIds=[];delete state.activeGoal;state.shownVehicles=[];
+      }
+    }
+  }
   // Structured side intents are routed before applying any proposed workflow operations.
   if (!direct&&plan.intent==='profile_recall') return answerRecall(plan.recallTopic??'profile');
-  // A financial what-if is an executable scenario, not a hypothetical role change.
-  // Resolve it before generic side intents; never turn model-inferred scenario values into profile facts.
-  const waiverScenario=!direct&&hypothetical(latest.body)&&WAIVER_INTENT.test(latest.body)&&
-    !/(?:הייתי|בתפקיד|מקצוע|עיסוק)/u.test(latest.body)&&
-    !detectOccupation(latest.body,occupations,{partial:true});
-  if (waiverScenario&&['hypothetical','conversation'].includes(plan.intent??'')) {
-    plan=advisorPlanSchema.parse({action:'net',goal:'waiver',intent:'workflow',filters:{}});
+  // A waiver (also as a what-if) is an executable scenario, not a hypothetical role change or a comparison. It is
+  // resolved before every side route (hypothetical, conversation, alternatives, side question), whatever the model
+  // labelled the turn; never inside a correction, and a report of today's car stays a report.
+  // Model-inferred scenario values never become profile facts: a what-if keeps no operations.
+  const explicitWaiver=waiverWords&&!correctionContext&&!correctionButton&&labeled.length<2&&
+    (hypothetical(latest.body)||!plan.operations.some(operation=>operation.type==='report_current_vehicle'));
+  if (explicitWaiver&&!(plan.action==='net'&&plan.goal==='waiver'&&!plan.intent&&!plan.conversationAct)) {
+    plan=advisorPlanSchema.parse({action:'net',goal:'waiver',intent:'workflow',filters:{},
+      operations:hypothetical(latest.body)?[]:plan.operations});
+    console.info('[carwise.ai.advisor]',{phase:'plan',outcome:'deterministic',reason:'explicit_waiver'});
   }
   if (!direct&&plan.intent==='hypothetical') return answerHypothetical();
   if (!direct && plan.conversationAct === 'alternatives') {
@@ -527,7 +586,7 @@ async function advisorTurn(track:Track, userId:string, conversationId:string, hi
   // representative request) is protected from the model's search operations. Only explicit wording changes the search.
   const modelFacts=plan.operations.some(operation=>['report_fact','unknown_fact','report_current_vehicle'].includes(operation.type));
   const workflowPending=financialContext&&(['financial','approval','correction'].includes(previous?.pendingQuestion??'')||
-    state.pendingFacts.length>0||Boolean(state.disputedFacts?.length)||state.representative?.status==='requested');
+    state.pendingFacts.length>0||Boolean(state.disputedFacts?.length)||awaitingRepresentative(state));
   // Answering "which car do you drive today?" is about the current car only: no search or comparison change.
   const answeringCarQuestion=previous?.pendingField==='current_vehicle_id';
   const protectedTurn=correctionContext||(financialContext&&modelFacts)||workflowPending||answeringCarQuestion;
@@ -547,7 +606,7 @@ async function advisorTurn(track:Track, userId:string, conversationId:string, hi
   // ("ויתור" as the current state) is not a request to waive.
   // (A report of today's car inside a hypothetical sentence is ignored by the flow, so it does not count here.)
   const waiverIntent=!correctionContext&&labeled.length<2&&(hypothetical(latest.body)||!plan.operations.some(operation=>operation.type==='report_current_vehicle'))&&
-    (plan.goal==='waiver'||WAIVER_INTENT.test(latest.body));
+    (explicitWaiver||!NEGATED_WAIVER.test(latest.body)&&(plan.goal==='waiver'||WAIVER_INTENT.test(latest.body)));
   if (waiverIntent) {state.activeGoal={kind:'waiver'};state.goal='waiver';}
   // An explicit request to see or compare cars, in THIS message, replaces a persisted goal (e.g. a completed waiver):
   // the old goal must not be replayed as the answer. Never inside a correction; an explicit waiver wins.
@@ -665,19 +724,24 @@ async function advisorTurn(track:Track, userId:string, conversationId:string, hi
   track.stage='facts';
   // Facts are kept in conversation state even when this turn must first ask a clarification.
   const financialOperations=plan.operations.filter(operation=>FINANCIAL_OPERATIONS.includes(operation.type)) as FinancialOperation[];
-  const applied=financialOperations.length||state.pendingField?await applyFinancialOperations(state,financialOperations,latest,await financial())
+  const applied=!vehicleWhatIf&&(financialOperations.length||state.pendingField)?await applyFinancialOperations(state,financialOperations,latest,await financial())
     :{notes:[] as FinancialNote[],accepted:0,unknownNow:[] as FactField[],offerRepresentative:undefined};
   if (payslip) {applied.accepted+=payslip.accepted;applied.notes.push(...payslip.notes);applied.unknownNow.push(...payslip.unknownNow);}
   // After a selection the employee was offered a net check; a reply about the net continues there.
   if (previous?.pendingQuestion==='next_step' && /נטו/u.test(latest.body) && !['net','waiver'].includes(state.goal)) state.goal='net';
 
   // The employee supplied the field an open representative request was about: that request is no longer needed.
+  // Every request superseded in this turn is cancelled (several may be open in one conversation).
   let supersededNote:string|undefined;
-  if (previous?.representative?.status==='requested'&&state.representative?.status==='superseded') {
-    const requestId=previous.representative.requestId;
+  const wasRequested=new Set(representativeEntries(previous).filter(entry=>entry.status==='requested').map(entry=>entry.requestId));
+  const supersededNow=representativeEntries(state).filter(entry=>entry.status==='superseded'&&wasRequested.has(entry.requestId));
+  if (supersededNow.length) {
     let cancelled=false;
-    if (requestId&&requests.cancel) { try { cancelled=await requests.cancel(requestId); } catch { cancelled=false; } }
-    console.info('[carwise.ai.advisor]',{phase:'representative',outcome:cancelled?'request_cancelled':'request_superseded'});
+    for (const entry of supersededNow) {
+      if (!requests.cancel) break;
+      try { cancelled=(await requests.cancel(entry.requestId))||cancelled; } catch { /* Superseded either way: a late answer is ignored. */ }
+    }
+    console.info('[carwise.ai.advisor]',{phase:'representative',outcome:cancelled?'request_cancelled':'request_superseded',count:supersededNow.length});
     supersededNote=cancelled?'עדכנתי את הפרט שכתבת, ולכן הפנייה לנציג בנושא הזה בוטלה.'
       :'עדכנתי את הפרט שכתבת. הפנייה לנציג בנושא הזה כבר לא נחוצה, ואם תגיע ממנה תשובה היא לא תחליף את הערך שלך.';
   }
@@ -960,9 +1024,14 @@ async function advisorTurn(track:Track, userId:string, conversationId:string, hi
     if (outcome.calculation) reply.calculation=outcome.calculation;
     const representative=outcome.offerRepresentative||applied.offerRepresentative;
     const offered=representative?offerRepresentative(representative):[];
-    // The schema allows one active request per conversation: say so instead of offering a button that cannot work.
-    if (representative&&!offered.length&&state.representative?.status==='requested') {
-      reply.text+=state.representative.topic===representative?'\n\nהפנייה לנציג בנושא הזה כבר פתוחה; כשתגיע תשובה היא תופיע כאן.':`\n\n${ONE_REQUEST}`;
+    // Invite a new request only when its button can actually be offered. A pending request is explained below
+    // (or by the financial flow's waiting message), without inviting a duplicate or exposing internal limits.
+    if (!offered.length) reply.text=reply.text
+      .replace(' אפשר גם לפנות לנציג, שיבדוק מול מקור רשמי.', '')
+      .replace('אפשר לבדוק בתלוש השכר, או להיעזר בנציג.', 'אפשר לבדוק בתלוש השכר או אצל צוות השכר.');
+    // No button: a request on this very topic is pending, or (single-request rule) the conversation already has one.
+    if (representative&&!offered.length) {
+      reply.text+=multipleRequests||state.representative?.topic===representative?'\n\nהפנייה לנציג בנושא הזה כבר פתוחה; כשתגיע תשובה היא תופיע כאן.':`\n\n${ADDITIONAL_REQUEST_UNAVAILABLE}`;
     }
     // The current-car choice offers the actual catalog models as buttons (the reply is an ordinary message).
     const choices=(applied.vehicleChoices??[]).map(row=>({label:row.display_name.slice(0,60),body:`הרכב הצמוד שלי היום: ${row.display_name} (${row.id})`.slice(0,200)}));

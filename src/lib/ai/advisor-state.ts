@@ -59,6 +59,47 @@ export const advisorStateSchema = z.object({
   representative:z.object({status:z.enum(['offered','requested','superseded']),code:codeSchema,topic:z.string().min(1).max(120),
     requestId:z.string().uuid().optional(),
     // The missing field this request asks about, and answers already used (duplicate clicks change nothing).
-    field:factFieldSchema.optional(),usedAnswerIds:z.array(z.string().uuid()).max(10).optional()}).strict().optional()
+    field:factFieldSchema.optional(),usedAnswerIds:z.array(z.string().uuid()).max(10).optional()}).strict().optional(),
+  // Every representative request opened in this conversation (several are allowed, one pending per topic): its own
+  // id, topic, field and status, so each answer is matched to its own request. 'representative' above is the latest
+  // offer/request (the button code); older states without this list are read through representativeEntries().
+  representativeRequests:z.array(z.object({requestId:z.string().uuid(),topic:z.string().min(1).max(120),field:factFieldSchema.optional(),
+    status:z.enum(['requested','superseded','used'])}).strict()).max(10).optional()
 }).strict();
 export type AdvisorState = z.infer<typeof advisorStateSchema>;
+export type RepresentativeEntry = NonNullable<AdvisorState['representativeRequests']>[number];
+
+/**
+ * The conversation's representative requests. States saved before the list existed have one request in
+ * 'representative': it is read as a single entry ('used' once an answer of it was used).
+ */
+export function representativeEntries(state: Pick<AdvisorState, 'representative' | 'representativeRequests'> | null | undefined): RepresentativeEntry[] {
+  if (!state) return [];
+  if (state.representativeRequests) return state.representativeRequests;
+  const legacy = state.representative;
+  if (!legacy?.requestId || legacy.status === 'offered') return [];
+  return [{ requestId: legacy.requestId, topic: legacy.topic, ...(legacy.field ? { field: legacy.field } : {}),
+    status: legacy.status === 'superseded' ? 'superseded' : legacy.usedAnswerIds?.length ? 'used' : 'requested' }];
+}
+/** Fields a representative is still being asked about (requested, answer not used yet). */
+export const awaitedRepresentativeFields = (state: Pick<AdvisorState, 'representative' | 'representativeRequests'>) =>
+  representativeEntries(state).flatMap(entry => entry.status === 'requested' && entry.field ? [entry.field] : []);
+export const awaitingRepresentative = (state: Pick<AdvisorState, 'representative' | 'representativeRequests'>) =>
+  representativeEntries(state).some(entry => entry.status === 'requested');
+/**
+ * The state in the format of the version before the list existed (Production 565e426, whose schema is strict and
+ * rejects unknown keys): used while several requests are off, so a rollback still loads every conversation. Nothing
+ * is lost then: with one request per conversation, 'representative' holds that request (requested / superseded /
+ * used answers), and representativeEntries() reads it the same way.
+ */
+export function withoutRepresentativeList<T extends Pick<AdvisorState, 'representativeRequests'>>(state: T): T {
+  if (!state.representativeRequests) return state;
+  const copy = { ...state };
+  delete copy.representativeRequests;
+  return copy;
+}
+/** Records or updates one request (materializing the list from an older state first). */
+export function putRepresentativeEntry(state: AdvisorState, entry: RepresentativeEntry) {
+  const entries = representativeEntries(state).filter(item => item.requestId !== entry.requestId);
+  state.representativeRequests = [...entries, entry].slice(-10);
+}

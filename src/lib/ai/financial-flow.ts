@@ -9,7 +9,7 @@ import type { CalculationSnapshotInput } from '../calculation-history-repository
 import type { AdvisorOccupation } from '../occupation-repository';
 import type { CalculationScenario, CatalogMessage, MessageAction } from '../catalog-message';
 import type { ConversationMessageRow } from '../conversation-repository';
-import type { AdvisorState, FactField } from './advisor-state';
+import { awaitedRepresentativeFields, putRepresentativeEntry, representativeEntries, type AdvisorState, type FactField } from './advisor-state';
 import { requestTopic, requestableFieldSchema } from '../representative-answer';
 import { identifyCurrentVehicle } from './vehicle-identification';
 import { joinNames, type CatalogRow } from './vehicle-selection';
@@ -169,6 +169,8 @@ const WORDS: Record<string, number> = { אפס: 0, אחד: 1, אחת: 1, שני�
 /** Numbers literally present in text: 18,000 / 18000 / 18 אלף / 2.25 / 2 וחצי / שלושה. */
 export function numbersIn(text: string): number[] {
   const found: number[] = [];
+  // Catalog IDs and model numbers are identifiers, not amounts. Keep amounts elsewhere in the sentence.
+  text = text.replace(/(?<![A-Za-z0-9])[A-Za-z][A-Za-z0-9]*(?:[-־ ]+\d+(?:\.\d+)?|\d+)(?![A-Za-z0-9])/gu, ' ');
   // Digits glued to Latin letters are model names ("MG4", "EV3", "ATTO3"), never amounts.
   for (const match of text.matchAll(/(?<![A-Za-z\d.,])(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?(\s*(?:אלף|k|K)(?![\p{L}]))?(\s*וחצי)?/gu)) {
     if (!match[3] && /^[A-Za-z]/.test(text.slice(match.index! + match[0].length))) continue;
@@ -227,8 +229,13 @@ function putFact(state: AdvisorState, field: FactField, value: string | number, 
   state.pendingFacts = state.pendingFacts.filter(fact => fact.field !== field);
   state.pendingFacts.push({ field, value, sourceMessageId, status: 'pending_confirmation' });
   state.unknownFacts = (state.unknownFacts ?? []).filter(item => item !== field);
+  if (!byEmployee) return;
   const representative = state.representative;
-  if (byEmployee && representative?.status === 'requested' && representative.field === field) state.representative = { ...representative, status: 'superseded' };
+  if (representative?.status === 'requested' && representative.field === field) state.representative = { ...representative, status: 'superseded' };
+  // Every request still waiting for this field (several requests may be open in one conversation).
+  for (const entry of representativeEntries(state)) {
+    if (entry.status === 'requested' && entry.field === field) putRepresentativeEntry(state, { ...entry, status: 'superseded' });
+  }
 }
 /** The representative topic used when the current car cannot be identified; it is about current_vehicle_id. */
 export const CURRENT_VEHICLE_TOPIC = 'בדיקת הרכב הנוכחי';
@@ -279,7 +286,7 @@ export type AppliedFacts = { notes: FinancialNote[]; accepted: number; unknownNo
   vehicleChoices?: CatalogRow[] };
 const explicitValue = (evidence: string) => numbersIn(evidence).length > 0 || negation(evidence);
 // "מה יקרה אם אוותר על רכב?" describes a possible future, never the car situation today.
-export const hypothetical = (text: string) => /(?:^|[^\p{L}])(?:אם|מה יקרה|מה יהיה|במקרה ש)(?=$|[^\p{L}])/u.test(text);
+export const hypothetical = (text: string) => /(?:^|[^\p{L}])ו?(?:אם|מה יקרה|מה יהיה|במקרה ש)(?=$|[^\p{L}])/u.test(text);
 const CURRENT_CAR_FIELDS: FactField[] = ['current_vehicle_id', 'current_participation'];
 
 /**
@@ -301,7 +308,7 @@ async function answerPendingField(state: AdvisorState, latest: ConversationMessa
   const kind = FIELDS[field].kind;
   if (kind === 'name') return;
   if (kind === 'vehicle') {
-    const awaiting = state.representative?.status === 'requested' && state.representative.field === 'current_vehicle_id';
+    const awaiting = awaitedRepresentativeFields(state).includes('current_vehicle_id');
     if (!awaiting && negation(body) && !numbersIn(body).length && !/[A-Za-z]/.test(body)) { putFact(state, field, 'NONE', latest.id); result.accepted++; return; }
     await currentVehicleFrom(state, body, undefined, latest, deps, result, awaiting);
     return;
@@ -318,7 +325,7 @@ export async function applyFinancialOperations(state: AdvisorState, operations: 
   const result: AppliedFacts = { notes: [], accepted: 0, unknownNow: [] };
   const notes = result.notes;
   // While a representative checks the current car, the employee may still name it in any later message ("בעצם יש לי TUCSON").
-  const carAwaited = state.representative?.status === 'requested' && state.representative.field === 'current_vehicle_id' &&
+  const carAwaited = awaitedRepresentativeFields(state).includes('current_vehicle_id') &&
     state.pendingField !== 'current_vehicle_id' && !state.pendingFacts.some(fact => fact.field === 'current_vehicle_id') &&
     !operations.some(operation => operation.type === 'report_current_vehicle');
   if (carAwaited && OWN_CAR.test(latest.body)) await currentVehicleFrom(state, latest.body, undefined, latest, deps, result, true);
@@ -331,6 +338,10 @@ export async function applyFinancialOperations(state: AdvisorState, operations: 
     // A hypothetical question never changes the current car or participation in the profile.
     if (future && (operation.type === 'report_current_vehicle' || (operation.type === 'report_fact' && CURRENT_CAR_FIELDS.includes(operation.field)))) continue;
     if (operation.type === 'report_fact') {
+      // Evidence may be only the digits sliced out of an ID ("03" from CAR-03).
+      // Require the value to occur as an amount in the full employee message as well.
+      if (typeof operation.value === 'number' && !numbersIn(latest.body).includes(operation.value) &&
+        !(operation.value === 0 && negation(latest.body))) continue;
       const checked = checkFact(operation.field, operation.value, operation.evidence);
       if (checked.ok) { putFact(state, operation.field, checked.value, latest.id); result.accepted++; }
       else notes.push({ field: operation.field, text: checked.note, explicit: explicitValue(operation.evidence) });
@@ -657,10 +668,9 @@ export async function advanceFinancialFlow(input: FinancialInput, deps: Financia
   if (missing.length) {
     // Back to collecting: an earlier summary is no longer the proposal, so its approval button cannot apply.
     delete state.pendingApproval;
-    // A field already sent to a representative is not asked again while that request is open; other questions continue.
-    const representative = state.representative;
-    const awaiting = representative?.status === 'requested' && representative.field && missing.includes(representative.field) ? representative.field : undefined;
-    const unknown = missing.filter(field => state.unknownFacts?.includes(field) || field === awaiting);
+    // Fields already sent to a representative are not asked again while their request is open; other questions continue.
+    const awaiting = awaitedRepresentativeFields(state).filter(field => missing.includes(field));
+    const unknown = missing.filter(field => state.unknownFacts?.includes(field) || awaiting.includes(field));
     const next = nextQuestion(missing, unknown);
     const firstQuestion = !state.pendingField && !input.accepted && !notes.length;
     const parts: string[] = [];
@@ -683,12 +693,13 @@ export async function advanceFinancialFlow(input: FinancialInput, deps: Financia
       // The value still awaited is the one "on screen": a later short answer ("7%") belongs to it.
       state.pendingField = unknown[0]; state.pendingFieldAsks = 1;
       state.pendingQuestion = 'financial';
-      if (awaiting && unknown.every(field => field === awaiting)) {
-        parts.push(`כל שאר הפרטים כבר אצלי. ממתינים לתשובת הנציג לגבי ${FIELDS[awaiting].about}; אם הפרט ידוע לך בינתיים, אפשר לכתוב אותו כאן.`);
+      if (awaiting.length && unknown.every(field => awaiting.includes(field))) {
+        parts.push(`כל שאר הפרטים כבר אצלי. ממתינים לתשובת הנציג לגבי ${awaiting.map(field => FIELDS[field].about).join(' ו')}; אם הפרט ידוע לך בינתיים, אפשר לכתוב אותו כאן.`);
         return { text: parts.join(' ').slice(0, 1600) };
       }
       if (!justUnknown.length) parts.push(`כדי לחשב חסר לי רק ${unknown.map(field => FIELDS[field].about).join(' ו')}. אפשר לבדוק בתלוש השכר ולכתוב לי, או להיעזר בנציג.`);
-      return { text: parts.join(' ').slice(0, 1600), offerRepresentative: topicFor(unknown[0]) };
+      // A representative is offered for a field nobody is checking yet (one already sent is not requested twice).
+      return { text: parts.join(' ').slice(0, 1600), offerRepresentative: topicFor(unknown.find(field => !awaiting.includes(field)) ?? unknown[0]) };
     }
     state.pendingQuestion = 'financial';
     state.pendingFieldAsks = state.pendingField !== next ? 1 : (state.pendingFieldAsks ?? 1) + (input.progressed ? 0 : 1);
@@ -877,7 +888,14 @@ export async function advanceFinancialFlow(input: FinancialInput, deps: Financia
     lines.push(`הכי משתלם בנטו: ${best.view.name} (${delta === 0 ? 'בלי שינוי בנטו' : `הנטו ${delta > 0 ? 'יעלה' : 'ירד'} ב־${shekels(delta)} בחודש`} לעומת היום).`);
   }
   const baselineView = scenarioView(baselineChoice.type === 'car' ? 'vehicle' : 'waiver', baselineCar, baselineName, baseline, true, baselineEligibility.reason, baseline.net);
-  return say(`${savedText}הנה החישוב 👇\n${baselineChoice.type === 'waiver' ? 'היום, בלי רכב צמוד' : `היום, עם ${baselineName.replace('היום: ', '')}`}, הנטו שלך הוא בערך ${shekels(baseline.net)} בחודש.\n${lines.join('\n')}\n` +
+  // A waiver the approved role does not allow is answered as a plain refusal, not as a calculation result.
+  const refusedWaiver = waiverOnly && scenarios.length === 1 && scenarios[0].view.kind === 'waiver' && !scenarios[0].result;
+  const today = `${baselineChoice.type === 'waiver' ? 'היום, בלי רכב צמוד' : `היום, עם ${baselineName.replace('היום: ', '')}`}, הנטו שלך הוא בערך ${shekels(baseline.net)} בחודש`;
+  const body = refusedWaiver
+    ? `לצערי, לפי התפקיד המאושר שלך (${input.occupation.title}) וכללי החברה, אי אפשר לוותר על הרכב הצמוד: ${scenarios[0].view.reason}.\n` +
+      `${today}, וזה לא משתנה. אפשר להמשיך לבחור ולהשוות רכבים שמתאימים לך.\n`
+    : `הנה החישוב 👇\n${today}.\n${lines.join('\n')}\n`;
+  return say(`${savedText}${body}` +
     'החישוב לפי הפרטים שאישרת וכללי החברה. זו הערכה ולא תלוש שכר.' +
     (runId ? '' : ' (לא הצלחתי לשמור את החישוב בהיסטוריה.)'), {
     calculation: { runId, saved: Boolean(runId), profileVersion: profile.version, rulesVersion: meta.version, taxYear: meta.netMethod.taxYear,

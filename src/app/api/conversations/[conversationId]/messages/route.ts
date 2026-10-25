@@ -7,7 +7,7 @@ import {
   sendConversationMessage
 } from '@/lib/conversation-repository';
 // Relative paths: these two run for real in the route tests (the test runner has no '@/' alias).
-import { answerRejection, decodeRepAnswer, REP_ANSWER_KIND } from '../../../../../lib/representative-answer';
+import { answerRejection, decodeRepAnswer, decodeRepReply, REP_ANSWER_KIND, REP_REPLY_KIND, replyRejection } from '../../../../../lib/representative-answer';
 import { getRequestForRepresentative } from '../../../../../lib/representative-request-repository';
 import {
   messageInputSchema,
@@ -106,6 +106,13 @@ export async function POST(
       const answer = decodeRepAnswer(input.body);
       if (!answer) return NextResponse.json({ error: 'מבנה התשובה אינו תקין.' }, { status: 400 });
       const rejection = answerRejection(await getRequestForRepresentative(answer.requestId), answer, conversationId, profile.userId);
+      if (rejection) return NextResponse.json({ error: rejection }, { status: rejection.includes('כבר נשלחה') ? 409 : 400 });
+    }
+    // A free-text reply to a GENERAL request: the same checks, and never for a missing-field request.
+    if (profile.role === 'representative' && input.body.includes(REP_REPLY_KIND)) {
+      const reply = decodeRepReply(input.body);
+      if (!reply) return NextResponse.json({ error: 'מבנה התשובה אינו תקין.' }, { status: 400 });
+      const rejection = replyRejection(await getRequestForRepresentative(reply.requestId), reply, conversationId, profile.userId);
       if (rejection) return NextResponse.json({ error: rejection }, { status: rejection.includes('כבר נשלחה') ? 409 : 400 });
     }
     const message = await sendConversationMessage(

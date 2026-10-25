@@ -9,7 +9,7 @@ import { ApprovalSummary, CalculationResults, MessageActions } from './advisor-b
 import { ThinkingCar } from './thinking-car';
 import { ProgressiveText } from './progressive-text';
 import { CarWiseCar } from '../ui/carwise-car-loader';
-import { decodeRepAnswer, formatAnswerValue, REQUESTABLE_FIELDS, useAnswerMessage } from '@/lib/representative-answer';
+import { decodeRepAnswer, decodeRepReply, formatAnswerValue, REQUESTABLE_FIELDS, useAnswerMessage } from '@/lib/representative-answer';
 import { decodePayslipReview, describePayslipReview } from '@/lib/payslip/payslip-contract';
 
 function Message({ message, animate, actionsEnabled, canUseAnswer, onAction, onPayslip }: {
@@ -21,11 +21,13 @@ function Message({ message, animate, actionsEnabled, canUseAnswer, onAction, onP
   const representative = message.sender_type === 'representative';
   const catalog = message.sender_type === 'assistant' ? decodeCatalogMessage(message.body) : null;
   const answer = representative ? decodeRepAnswer(message.body) : null;
+  // A free-text reply to a general request: shown as the representative's words only (no button, no value).
+  const reply = representative && !answer ? decodeRepReply(message.body) : null;
   // Reviewed payslip values are a structured message; only their readable summary is shown.
   const payslip = employee ? decodePayslipReview(message.body) : null;
   const text = catalog?.text ?? (payslip ? describePayslipReview(payslip) : answer
     ? `תשובה לשאלה על ${REQUESTABLE_FIELDS[answer.field].label}: ${formatAnswerValue(answer.field, answer.value)}${answer.note ? `\nהערת הנציג: ${answer.note}` : ''}`
-    : message.body);
+    : reply ? `תשובה לפנייה שלך:\n${reply.text}` : message.body);
   const label = employee ? 'אני' : representative ? 'נציגות השירות' : 'CarWise';
   return <article className={`cw-message cw-message-${message.sender_type}`} aria-label={employee ? 'ההודעה שלך' : `הודעה מאת ${label}`}>
     <div className="cw-message-avatar">{employee ? <ChatIcon name="user" /> : representative ? <ChatIcon name="chat" /> : <CarWiseMark small />}</div>

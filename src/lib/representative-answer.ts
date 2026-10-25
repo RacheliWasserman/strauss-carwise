@@ -47,7 +47,7 @@ export type AnswerableRequest = { id: string; conversation_id: string; status: s
  */
 export function answerRejection(request: AnswerableRequest | null, answer: RepresentativeAnswer, conversationId: string, representativeId: string): string | null {
   if (!request || request.id !== answer.requestId || request.conversation_id !== conversationId || request.assigned_representative_id !== representativeId) return 'הפנייה הזו לא משויכת אליך.';
-  if (request.status === 'answered') return 'כבר נשלחה תשובה לפנייה הזו.';
+  if (request.status === 'answered' || request.status === 'closed') return 'כבר נשלחה תשובה לפנייה הזו.';
   if (request.status !== 'claimed') return 'אפשר לענות רק על פנייה שבטיפולך.';
   if (fieldFromTopic(request.topic) !== answer.field) return 'השדה בתשובה לא תואם לשאלה בפנייה.';
   return validateAnswerValue(answer.field, answer.value);
@@ -70,5 +70,39 @@ export const formatAnswerValue = (field: RequestableField, value: number) => {
   const unit = REQUESTABLE_FIELDS[field].unit;
   return unit === '₪' ? `${value.toLocaleString('he-IL')} ₪` : unit === '%' ? `${value.toLocaleString('he-IL')}%` : `${value.toLocaleString('he-IL')} ${unit}`;
 };
+/**
+ * A representative's free-text reply to a GENERAL request (no missing field). It names its request, so it is linked to
+ * exactly one request, and it is shown to the employee as text only: it never becomes a value or a profile change.
+ * Missing-field requests keep the structured answer above (and the employee's approval before any profile update).
+ */
+export const REP_REPLY_KIND = 'carwise.rep-reply.v1';
+export const REP_REPLY_MAX = 2000;
+export const repReplySchema = z.object({
+  kind: z.literal(REP_REPLY_KIND), requestId: z.string().uuid(), text: z.string().trim().min(1).max(REP_REPLY_MAX),
+  answeredAt: z.string().datetime()
+}).strict();
+export type RepresentativeReply = z.infer<typeof repReplySchema>;
+export function encodeRepReply(reply: RepresentativeReply) { return JSON.stringify(repReplySchema.parse(reply)); }
+export function decodeRepReply(body: string): RepresentativeReply | null {
+  if (!body.startsWith('{') || body.length > REP_REPLY_MAX * 2 + 400) return null;
+  try { const parsed = repReplySchema.safeParse(JSON.parse(body)); return parsed.success ? parsed.data : null; } catch { return null; }
+}
+/** Server-side check before a free-text reply is stored: assigned representative, request in handling, general request only. */
+export function replyRejection(request: AnswerableRequest | null, reply: RepresentativeReply, conversationId: string, representativeId: string): string | null {
+  if (!request || request.id !== reply.requestId || request.conversation_id !== conversationId || request.assigned_representative_id !== representativeId) return 'הפנייה הזו לא משויכת אליך.';
+  if (request.status === 'answered' || request.status === 'closed') return 'כבר נשלחה תשובה לפנייה הזו.';
+  if (request.status !== 'claimed') return 'אפשר לענות רק על פנייה שבטיפולך.';
+  if (fieldFromTopic(request.topic)) return 'בפנייה הזו חסר שדה מוגדר: יש לענות בטופס המובנה, כדי שהעובד יאשר את הערך לפני שהוא נשמר.';
+  return null;
+}
+/** The representative's own latest free-text reply per request, from their own messages only. */
+export function latestOwnReplies(messages: Array<{ body: string; created_at: string }>, requestIds: string[]) {
+  const replies = new Map<string, RepresentativeReply>();
+  for (const message of [...messages].sort((a, b) => a.created_at.localeCompare(b.created_at))) {
+    const reply = decodeRepReply(message.body);
+    if (reply && requestIds.includes(reply.requestId)) replies.set(reply.requestId, reply);
+  }
+  return [...replies.values()];
+}
 /** The employee's "use this answer" button text. The code is the start of the answer message's own ID. */
 export const useAnswerMessage = (messageId: string) => `שימוש בתשובת הנציג #Q${messageId.slice(0, 8).toUpperCase()}`;

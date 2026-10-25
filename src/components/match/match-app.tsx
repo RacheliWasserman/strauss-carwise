@@ -10,7 +10,7 @@ import type { EmployeeAccount } from '../chat/employee-chat';
 import { useConversationList } from '../chat/use-conversation-list';
 import { VehiclePhoto } from '../catalog/vehicle-photo';
 import { CarWiseCarLoader } from '../ui/carwise-car-loader';
-import { FAMILY_GROUP, groupLabel, netImpactHref, propulsion } from '@/lib/catalog/showroom';
+import { CONTINUE_CHAT_HREF, FAMILY_GROUP, groupLabel, netImpactHref, propulsion } from '@/lib/catalog/showroom';
 import { BODY_LABEL, POWERTRAIN_UNDER_REVIEW, powertrainLabel, toggleCharging, type ChargingAccess, type CHARGING, type DISTANCES, type DRIVING, type FINANCE,
   type MatchPowertrain, type MatchPreferences, type MatchQuestion, type MatchRecommendation, type MatchResponse, type Priority,
   type SEAT_NEEDS, type TRAVELERS } from '@/lib/match/match-engine';
@@ -262,7 +262,7 @@ function Results({ data, answers, onEdit, onRestart }: { data: Ready; answers: A
   const items = outcome.recommendations;
   const ids = items.map(item => item.vehicle.id);
   const chips = summaryRows(answers, data.powertrains).filter(row => !row.empty);
-  const chatHref = ids.length > 1 ? `/employee?${new URLSearchParams({ compare: ids.join(',') })}` : ids.length ? netImpactHref(ids[0]) : '/employee';
+  const chatHref = ids.length > 1 ? `/employee?${new URLSearchParams({ compare: ids.join(',') })}` : ids.length ? netImpactHref(ids[0]) : CONTINUE_CHAT_HREF;
   return <section className="cw-match-results cw-match-enter" aria-labelledby="cw-match-results-title">
     <header className="cw-match-report-head">
       <p className="cw-match-step">הדוח האישי שלך</p>
@@ -361,7 +361,7 @@ export function MatchApp({ userId, account }: { userId: string; account?: Employ
   </div>;
   else if (view.kind === 'profile') content = <div className="cw-match-empty cw-match-profile" role="status"><ChatIcon name="shield" />
     <div><strong>קודם מאשרים את הפרטים</strong><p>{reason}</p></div>
-    <Link className="cw-showroom-primary" href="/employee"><ChatIcon name="chat" /><span>לאישור הפרטים בשיחה</span></Link>
+    <Link className="cw-showroom-primary" href={CONTINUE_CHAT_HREF}><ChatIcon name="chat" /><span>לאישור הפרטים בשיחה</span></Link>
   </div>;
   else if (view.kind === 'intro' && data) content = <section className="cw-match-hero cw-match-enter" aria-labelledby="cw-match-hero-title">
     <span className="cw-match-hero-mark" aria-hidden="true"><ChatIcon name="spark" /></span>

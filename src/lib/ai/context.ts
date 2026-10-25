@@ -2,7 +2,7 @@ import 'server-only';
 import { AI_LIMITS } from './config';
 import type { ConversationMessageRow } from '../conversation-repository';
 import { decodeCatalogMessage } from '../catalog-message';
-import { decodeRepAnswer, formatAnswerValue, REQUESTABLE_FIELDS } from '../representative-answer';
+import { decodeRepAnswer, decodeRepReply, formatAnswerValue, REQUESTABLE_FIELDS } from '../representative-answer';
 import { decodePayslipReview, describePayslipReview } from '../payslip/payslip-contract';
 
 export type AiContext = Array<{ role: 'user' | 'assistant'; content: string }>;
@@ -27,10 +27,13 @@ export function buildContext(messages: ConversationMessageRow[]): AiContext {
     const catalog = message.sender_type === 'assistant' ? decodeCatalogMessage(message.body) : null;
     // A structured representative answer is shown as text; it is never a fact until the employee approves it.
     const answer = message.sender_type === 'representative' ? decodeRepAnswer(message.body) : null;
+    // A free-text reply to a general request is shown as text (data only); it is never a fact or a profile value.
+    const reply = message.sender_type === 'representative' && !answer ? decodeRepReply(message.body) : null;
     // Reviewed payslip values are shown as a short sentence: never the JSON envelope or its signature.
     const payslip = message.sender_type === 'employee' ? decodePayslipReview(message.body) : null;
     const visible = catalog ? catalog.text : payslip ? describePayslipReview(payslip) : answer
-      ? `תשובת נציג לשאלה על ${REQUESTABLE_FIELDS[answer.field].label}: ${formatAnswerValue(answer.field, answer.value)} (ממתינה לבחירה ולאישור בשיחה)` : message.body;
+      ? `תשובת נציג לשאלה על ${REQUESTABLE_FIELDS[answer.field].label}: ${formatAnswerValue(answer.field, answer.value)} (ממתינה לבחירה ולאישור בשיחה)`
+      : reply ? `תשובת נציג לפנייה כללית: ${reply.text}` : message.body;
     let content = (prefix + redactSecrets(visible)).slice(0, Math.min(budget, AI_LIMITS.maxMessageChars));
     // UTF-16 slicing can split an emoji into an invalid lone surrogate.
     const last = content.charCodeAt(content.length - 1);

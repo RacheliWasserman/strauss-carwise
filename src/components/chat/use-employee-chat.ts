@@ -19,6 +19,22 @@ export function rememberActiveConversation(userId: string, id: string | null) {
   try { localStorage.setItem(activeKeyOf(userId), id ?? 'new'); } catch { /* Storage is optional. */ }
 }
 
+/**
+ * Which conversation the chat opens. A fresh visit (new login, opening the app, the "home" link) opens a NEW
+ * conversation: nothing is created in the database until the first message is sent, and every earlier conversation
+ * stays in the sidebar. An address that names a conversation (?conversation=, kept up to date while chatting, so a
+ * refresh stays there) opens it; an unsent message reopens its own conversation. A car chosen in the catalog or in
+ * Match (?vehicle / ?compare), or a link from inside a flow (?continue, e.g. Match → "approve the details"),
+ * continues the conversation the employee was in, as before.
+ */
+export function initialConversationId(input: { pendingConversationId: string | null; urlId: string | null; savedId: string | null; continueIntent: boolean }) {
+  if (input.pendingConversationId) return input.pendingConversationId;
+  if (input.urlId) return input.urlId;
+  return input.continueIntent ? input.savedId : null;
+}
+/** The address parameters that ask the chat to continue the current conversation. */
+export const continuesConversation = (params: URLSearchParams) => params.has('vehicle') || params.has('compare') || params.has('continue');
+
 export function useEmployeeChat(userId: string) {
   const activeKey = activeKeyOf(userId);
   const pendingKey = `carwise:pending:${userId}`;
@@ -79,7 +95,9 @@ export function useEmployeeChat(userId: string) {
   }, [activeKey]);
 
   useEffect(() => {
-    const urlId = conversationIdFrom(new URLSearchParams(window.location.search).get('conversation'));
+    const params = new URLSearchParams(window.location.search);
+    const urlId = conversationIdFrom(params.get('conversation'));
+    const continueIntent = continuesConversation(params);
     let savedId: string | null = null;
     let operation: OutgoingMessage | null = null;
     let savedDraft = '';
@@ -90,7 +108,16 @@ export function useEmployeeChat(userId: string) {
     } catch { /* Private browsing can disable browser storage. */ }
     pendingRef.current = operation;
     setPending(operation);
-    setActiveId(operation ? operation.conversationId : urlId ?? savedId);
+    const initialId = initialConversationId({ pendingConversationId: operation?.conversationId ?? null, urlId, savedId, continueIntent });
+    setActiveId(initialId);
+    // The address names the open conversation, so a refresh returns to it (not to a new one). The one-time
+    // "continue" signal is dropped from it.
+    if ((initialId && initialId !== urlId) || params.has('continue')) {
+      const url = new URL(window.location.href);
+      if (initialId) url.searchParams.set('conversation', initialId);
+      url.searchParams.delete('continue');
+      window.history.replaceState(null, '', url);
+    }
     if (operation) {
       setDraft(operation.body);
       setSendError('שליחה קודמת לא אושרה. אפשר ללחוץ על "ניסיון חוזר" כדי לוודא שההודעה נשמרה פעם אחת.');

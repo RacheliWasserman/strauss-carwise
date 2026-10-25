@@ -55,14 +55,19 @@ export async function getEmployeeRepresentativeRequest(
   return data as RepresentativeRequestRow | null;
 }
 
-/** The single active request of a conversation, if any (the schema allows one at a time). */
+/**
+ * An active request of the conversation: about the given topic when one is given (migration 202610250001 allows one
+ * pending request per topic), otherwise any (the older schema allows one active request per conversation).
+ */
 export async function findActiveRepresentativeRequest(
-  conversationId: string, ownerUserId: string
+  conversationId: string, ownerUserId: string, topic?: string
 ): Promise<RepresentativeRequestRow | null> {
   const supabase = await createSupabaseServerClient();
-  const { data, error } = await supabase.from('advisor_representative_requests').select(requestColumns)
+  let query = supabase.from('advisor_representative_requests').select(requestColumns)
     .eq('conversation_id', conversationId).eq('owner_user_id', ownerUserId)
-    .in('status', ['open', 'claimed', 'answered']).limit(1).maybeSingle();
+    .in('status', ['open', 'claimed', 'answered']);
+  if (topic !== undefined) query = query.eq('topic', topic);
+  const { data, error } = await query.order('requested_at', { ascending: false }).limit(1).maybeSingle();
   if (error) throw new Error('Failed to load representative request');
   return data as RepresentativeRequestRow | null;
 }

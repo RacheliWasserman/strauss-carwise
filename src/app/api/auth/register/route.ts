@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 // Relative paths: these run for real in the route tests (the test runner has no '@/' alias).
 import { firstIssue, registrationSchema } from '../../../../lib/identity/employee-identity';
 import { createIdentityForNewUser, deleteNewAuthUser, nationalIdInUse } from '../../../../lib/identity/identity-repository';
-import { getHebrewAuthError } from '../../../../lib/auth-errors';
+import { getHebrewAuthError, REGISTRATION_RECEIVED } from '../../../../lib/auth-errors';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
 import { authOrigin } from '../../../../lib/auth-origin';
 
@@ -11,7 +11,8 @@ export const dynamic = 'force-dynamic';
 
 const NO_STORE = { 'Cache-Control': 'no-store' };
 const json = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: NO_STORE });
-const CONFIRM = 'נשלח אימייל לאישור החשבון. אחרי האישור אפשר להתחבר.';
+// Same body for a new account, an existing address and an ID of another account: true in every case (no "sent").
+const CONFIRM = REGISTRATION_RECEIVED;
 
 const attempts = new Map<string, number[]>();
 function allow(key: string, now = Date.now()) {
