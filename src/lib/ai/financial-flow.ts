@@ -11,7 +11,7 @@ import type { CalculationScenario, CatalogMessage, MessageAction } from '../cata
 import type { ConversationMessageRow } from '../conversation-repository';
 import { awaitedRepresentativeFields, putRepresentativeEntry, representativeEntries, type AdvisorState, type FactField } from './advisor-state';
 import { requestTopic, requestableFieldSchema } from '../representative-answer';
-import { identifyCurrentVehicle } from './vehicle-identification';
+import { driveTypeIn, identifyCurrentVehicle, vehicleDirection, type VehicleIdentification } from './vehicle-identification';
 import { joinNames, type CatalogRow } from './vehicle-selection';
 
 export const CALCULATOR_VERSION = 'calculator-v1';
@@ -110,7 +110,90 @@ const FIELD_REFERENCES: Partial<Record<FactField, RegExp>> = {
   current_participation: /השתתפות|משתתפ/u,
   eligible_children_count: /(?:^|[^\p{L}])[והבלמש]?(?:ילדים|ילדות|ילד)(?=$|[^\p{L}])/u
 };
-const DISPUTE_MARKER = /(?:^|[^\p{L}])(?:לא\s+(?:נכון|נכונה|נכונים|נכונות|מדויק|מדויקת|מדויקים|מדויקות|מעודכן|מעודכנת|מעודכנים)|שגוי|שגויה|שגויים|שגויות|טעות|טעויות|טעיתי|טעית|טעיתם|לתקן|לשנות|לעדכן|תיקון)(?=$|[^\p{L}])/u;
+/**
+ * The names of the fields as employees write them next to a value ("שכר 18,500", "נקודות זיכוי 2.75", "2 ילדים"), also the
+ * summary's own labels. Wider than FIELD_REFERENCES (which only decides disputes); a label may carry its own number
+ * ("ילדים עד גיל 23"), which is never read as the value.
+ */
+const FIELD_WORDS: Array<[FactField, string]> = [
+  ['base_salary', 'שכר(?:\\s+ה?בסיס)?(?:\\s+(?:החודשי|חודשי|ברוטו|שלי))*|משכורת|ברוטו|מרוויח|מרוויחה|משתכר|משתכרת'],
+  ['commissions', 'עמלות(?:\\s+חודשיות)?|עמלה'],
+  ['bonus', 'בונוס(?:\\s+חודשי)?|בונוסים'],
+  ['employee_pension_percent', 'הפרשה\\s+לפנסיה|הפרשות\\s+לפנסיה|פנסיה|פנסיוני|פנסיונית'],
+  ['employee_study_fund_percent', 'הפרשה\\s+לקרן\\s+השתלמות|קרן\\s+ה?השתלמות|השתלמות|קה["״\'׳]?ש'],
+  ['tax_credit_points', 'נקודות\\s+ה?זיכוי|נק["\'׳]?\\s*זיכוי|נקודות|זיכוי'],
+  ['eligible_children_count', 'ילדים(?:\\s+(?:עד|מתחת\\s+ל)\\s*גיל\\s+\\d+)?|ילדות|ילד|ילדה'],
+  ['current_participation', 'השתתפות(?:\\s+חודשית)?(?:\\s+ברכב(?:\\s+היום)?)?|משתתף|משתתפת'],
+  ['display_name', 'שם\\s+בפרופיל|שמי|קוראים\\s+לי|השם\\s+שלי']
+];
+const FIELD_WORD_PATTERNS = FIELD_WORDS.map(([field, words]) => [field, new RegExp(`(?:^|[^\\p{L}])[והבלמש]{0,2}(${words})(?=$|[^\\p{L}])`, 'gu')] as const);
+type FieldMention = { field: FactField; start: number; end: number };
+function fieldMentions(text: string): FieldMention[] {
+  const found: FieldMention[] = [];
+  for (const [field, pattern] of FIELD_WORD_PATTERNS) {
+    for (const match of text.matchAll(pattern)) {
+      const end = match.index! + match[0].length;
+      found.push({ field, start: end - match[1].length, end });
+    }
+  }
+  // One place names one field: the longer name wins ("נקודות זיכוי" over "נקודות"), touching names of a field merge.
+  const kept = found.filter(item => !found.some(other => other !== item && other.start <= item.start && other.end >= item.end &&
+    other.end - other.start > item.end - item.start)).sort((a, b) => a.start - b.start);
+  return kept.filter((item, index) => !(index > 0 && kept[index - 1].field === item.field && /^\s*$/u.test(text.slice(kept[index - 1].end, item.start))));
+}
+/** The message names this field in the employee's own words. */
+export const fieldNamedIn = (field: FactField, text: string) => fieldMentions(text).some(item => item.field === field);
+/** The fields the message names, in the order written. */
+export const fieldsNamedIn = (text: string) => [...new Set(fieldMentions(text).map(item => item.field))];
+/**
+ * Values the employee wrote next to field names, read by the server in one pass: "שכר 18,500, עמלות 0, בונוס 0,
+ * פנסיה 6%, השתלמות 2.5%, נקודות זיכוי 2.75 ו־2 ילדים" gives all seven, whatever a model returned. Each clause (split
+ * at commas, semicolons, line breaks and "וגם"/"אבל") pairs a name with the number directly beside it; "אין עמלות"
+ * is 0. Anything not clearly paired is left out (and still asked). Questions and the current car are not read here.
+ */
+export function extractFieldValues(text: string): Array<{ type: 'report_fact'; field: Exclude<FactField, 'current_vehicle_id'>; value: number; evidence: string }> {
+  const results = new Map<FactField, { value: number; evidence: string }>();
+  const clauses = [...text.matchAll(/[^;\n,.]+(?:[,.](?=\d)[^;\n,.]*)*/gu)];
+  for (const clause of clauses) {
+    for (const part of clause[0].split(/\s(?=(?:וגם|אבל|אך)\s)/u)) {
+      if (part.includes('?')) continue;
+      const offset = clause.index! + clause[0].indexOf(part);
+      const names = fieldMentions(part).filter(item => item.field !== 'display_name');
+      if (!names.length) continue;
+      // The label's own digits ("עד גיל 23") are part of the name, never its value.
+      const numbers = amountsIn(part).filter(amount => !names.some(name => amount.start >= name.start && amount.end <= name.end));
+      const items = [...names.map(name => ({ kind: 'name' as const, ...name })), ...numbers.map(amount => ({ kind: 'number' as const, ...amount }))]
+        .sort((a, b) => a.start - b.start);
+      const used = new Set<number>();
+      // "שכר 18,500" (name first) or "2 ילדים" (number first): the clause's first item says which side a number is on.
+      const nameFirst = items[0].kind === 'name';
+      for (const name of names) {
+        const at = items.findIndex(item => item.kind === 'name' && item.start === name.start);
+        const near = (step: number) => {
+          const item = items[at + step];
+          const between = item && (step > 0 ? part.slice(name.end, item.start) : part.slice(item.end, name.start));
+          return item?.kind === 'number' && !used.has(item.start) && between!.length <= 24 && !/[A-Za-z]/.test(between!) ? item : undefined;
+        };
+        const number = nameFirst ? near(1) ?? near(-1) : near(-1) ?? near(1);
+        let value: number | undefined;
+        let from = name.start, to = name.end;
+        if (number) { used.add(number.start); value = number.value; from = Math.min(from, number.start); to = Math.max(to, number.end); }
+        else if (name.field !== 'base_salary') {
+          // "אין עמלות", "בלי בונוס", "ללא ילדים": zero, said in words next to the name.
+          const before = part.slice(Math.max(0, name.start - 14), name.start);
+          const said = /(?:^|[^\p{L}])ו?((?:אין(?:\s+לי)?|בלי|ללא|לא\s+מקבל(?:ת)?)\s*)$/u.exec(before);
+          // The evidence starts at the word itself ("אין לי עמלות", not "ואין"), as the zero check reads it.
+          if (said) { value = 0; from = name.start - said[1].length; }
+        }
+        if (value === undefined) continue;
+        results.set(name.field, { value, evidence: text.slice(offset + from, offset + to).trim() });
+      }
+    }
+  }
+  return [...results].flatMap(([field, item]) => field === 'current_vehicle_id' ? [] :
+    [{ type: 'report_fact' as const, field: field as Exclude<FactField, 'current_vehicle_id'>, value: item.value, evidence: item.evidence }]);
+}
+const DISPUTE_MARKER =/(?:^|[^\p{L}])(?:לא\s+(?:נכון|נכונה|נכונים|נכונות|מדויק|מדויקת|מדויקים|מדויקות|מעודכן|מעודכנת|מעודכנים)|שגוי|שגויה|שגויים|שגויות|טעות|טעויות|טעיתי|טעית|טעיתם|לתקן|לשנות|לעדכן|תיקון)(?=$|[^\p{L}])/u;
 export const GENERAL_CORRECTION_QUESTION = 'בשמחה, אילו פרטים לתקן? אפשר לכתוב כמה פרטים יחד. אם הערך הנכון של פרט מסוים לא ידוע, אפשר פשוט לכתוב את זה.';
 /**
  * "אבל חלק מהנתונים לא נכונים": a correction of the financial details without naming one. Messages that name a
@@ -166,22 +249,31 @@ const topicFor = (field?: FactField) => {
 const WORDS: Record<string, number> = { אפס: 0, אחד: 1, אחת: 1, שניים: 2, שתיים: 2, שני: 2, שתי: 2, שלוש: 3, שלושה: 3,
   ארבע: 4, ארבעה: 4, חמש: 5, חמישה: 5, שש: 6, שישה: 6, שבע: 7, שבעה: 7, שמונה: 8, תשע: 9, תשעה: 9, עשר: 10, עשרה: 10 };
 
-/** Numbers literally present in text: 18,000 / 18000 / 18 אלף / 2.25 / 2 וחצי / שלושה. */
+/** Numbers literally present in text: 18,000 / 18000 / 18 אלף / 2.25 / 2,75 / 2 וחצי / שלושה. */
 export function numbersIn(text: string): number[] {
-  const found: number[] = [];
-  // Catalog IDs and model numbers are identifiers, not amounts. Keep amounts elsewhere in the sentence.
-  text = text.replace(/(?<![A-Za-z0-9])[A-Za-z][A-Za-z0-9]*(?:[-־ ]+\d+(?:\.\d+)?|\d+)(?![A-Za-z0-9])/gu, ' ');
-  // Digits glued to Latin letters are model names ("MG4", "EV3", "ATTO3"), never amounts.
-  for (const match of text.matchAll(/(?<![A-Za-z\d.,])(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?(\s*(?:אלף|k|K)(?![\p{L}]))?(\s*וחצי)?/gu)) {
-    if (!match[3] && /^[A-Za-z]/.test(text.slice(match.index! + match[0].length))) continue;
-    let value = Number(match[1].replace(/,/g, '') + (match[2] ? '.' + match[2] : ''));
-    if (match[4]) value += 0.5;
-    if (match[3]) value *= 1000;
-    found.push(value);
+  return amountsIn(text).map(amount => amount.value);
+}
+type Amount = { value: number; start: number; end: number };
+/** The numbers of numbersIn() with their place in the text (digits first, then number words). */
+function amountsIn(text: string): Amount[] {
+  const found: Amount[] = [];
+  // Catalog IDs and model numbers are identifiers, not amounts. Keep amounts elsewhere in the sentence (blanked in
+  // place, so positions stay).
+  text = text.replace(/(?<![A-Za-z0-9])[A-Za-z][A-Za-z0-9]*(?:[-־ ]+\d+(?:\.\d+)?|\d+)(?![A-Za-z0-9])/gu, match => ' '.repeat(match.length));
+  // Digits glued to Latin letters are model names ("MG4", "EV3", "ATTO3"), never amounts. A comma before three digits
+  // groups thousands ("18,500"); before one or two digits it is a decimal comma ("2,75" נקודות זיכוי).
+  for (const match of text.matchAll(/(?<![A-Za-z\d.,])(\d{1,3}(?:,\d{3})+(?!\d)|\d+)(?:\.(\d+)|,(\d{1,2})(?![\d,]))?(\s*(?:אלף|k|K)(?![\p{L}]))?(\s*וחצי)?/gu)) {
+    if (!match[4] && /^[A-Za-z]/.test(text.slice(match.index! + match[0].length))) continue;
+    const decimals = match[2] ?? match[3];
+    let value = Number(match[1].replace(/,/g, '') + (decimals ? '.' + decimals : ''));
+    if (match[5]) value += 0.5;
+    if (match[4]) value *= 1000;
+    found.push({ value, start: match.index!, end: match.index! + match[0].length });
   }
   for (const match of text.matchAll(/(?:^|[^\p{L}])[וה]?(\p{L}+)(\s+וחצי)?(?=$|[^\p{L}])/gu)) {
     const value = WORDS[match[1]];
-    if (value !== undefined) found.push(value + (match[2] ? 0.5 : 0));
+    const end = match.index! + match[0].length;
+    if (value !== undefined) found.push({ value: value + (match[2] ? 0.5 : 0), start: end - (match[2]?.length ?? 0) - match[1].length, end });
   }
   return found;
 }
@@ -248,18 +340,60 @@ const OWN_CAR = /(?:^|[^\p{L}])(?:יש לי|הרכב שלי|הרכב הצמוד|
  * A model's suggested name is only a fallback. One match is accepted; a manufacturer or several models get ONE
  * targeted choice; nothing found asks for the model name, and only a repeated failure offers a representative.
  */
+/** What the conversation already knows about the current car, for reading the employee's words about it. */
+export type VehicleContext = {
+  /** The car of the approved profile (read only when the words leave a choice). */
+  approvedVehicleId?: () => Promise<string | null>;
+  /** The catalog cars offered as buttons in the previous reply ("איזה מהם הרכב הצמוד שלך היום?"). */
+  previousChoices?: string[];
+};
 async function currentVehicleFrom(state: AdvisorState, text: string, modelName: string | undefined, latest: ConversationMessageRow,
-  deps: Pick<FinancialDependencies, 'findVehicles' | 'catalogRows'>, result: AppliedFacts, quiet = false): Promise<void> {
+  deps: Pick<FinancialDependencies, 'findVehicles' | 'catalogRows'>, result: AppliedFacts, quiet = false, context: VehicleContext = {}): Promise<void> {
   const note = (value: string) => result.notes.push({ field: 'current_vehicle_id', text: value, explicit: true });
   let rows: CatalogRow[];
   try {
     rows = deps.catalogRows ? await deps.catalogRows()
       : modelName ? (await deps.findVehicles(modelName)).map(row => ({ manufacturer_name: '', group_code: 'א' as const, drive_type: '', ...row })) : [];
   } catch { note('לא הצלחתי לבדוק את הרכב שלך בקטלוג כרגע. אפשר לנסות שוב עוד רגע.'); return; }
-  const found = identifyCurrentVehicle(text, modelName, rows);
+  // "לעבור מ-COROLLA CROSS ל-BYD ATTO 3": the car after "מ-" is today's car; the car the employee wants is never taken
+  // as today's car (also not through its brand word, "BYD").
+  const direction = vehicleDirection(text, rows);
+  const wanted = new Set(direction.to.map(item => item.row.id));
+  let found: VehicleIdentification = direction.from.length === 1 ? { kind: 'match', row: direction.from[0].row } : identifyCurrentVehicle(text, modelName, rows);
+  if (found.kind === 'match' && wanted.has(found.row.id)) found = { kind: 'none' };
+  if (found.kind === 'choose') {
+    const choices = found.rows.filter(row => !wanted.has(row.id));
+    found = choices.length === 1 ? { kind: 'match', row: choices[0] } : choices.length ? { ...found, rows: choices } : { kind: 'none' };
+  }
+  // Several cars written and one of them is the approved car: that is the car, not a question.
+  if (found.kind === 'choose' && context.approvedVehicleId) {
+    let approved: string | null = null;
+    try { approved = await context.approvedVehicleId(); } catch { /* Asked as usual. */ }
+    const row = found.rows.find(item => item.id === approved);
+    if (row) found = { kind: 'match', row };
+  }
+  // A drive type as the answer ("היברידי" to "COROLLA או COROLLA CROSS?"): the offered car of that type, or a choice
+  // among the catalog cars of that type. Never a catalog search.
+  const drive = found.kind === 'none' ? driveTypeIn(text) : undefined;
+  if (drive && text.trim().length <= 40) {
+    const offered = rows.filter(row => context.previousChoices?.includes(row.id) && row.drive_type === drive);
+    const ofType = offered.length ? offered : rows.filter(row => row.drive_type === drive);
+    if (ofType.length === 1) found = { kind: 'match', row: ofType[0] };
+    else if (ofType.length) {
+      found = { kind: 'choose', rows: ofType.slice(0, 6), basis: 'name' };
+      if (!quiet && (state.pendingFieldAsks ?? 1) < 2) {
+        result.vehicleChoices = found.rows;
+        const names = found.rows.map(row => row.display_name);
+        note(`איזה רכב ${drive} הוא הרכב הצמוד שלך היום: ${names.length > 1 ? `${names.slice(0, -1).join(', ')} או ${names.at(-1)}` : names[0]}?`);
+        return;
+      }
+    }
+  }
   if (found.kind === 'match') { putFact(state, 'current_vehicle_id', found.row.id, latest.id); result.accepted++; return; }
   // While a representative checks the car, only a clearly named model counts; anything else is not about the car.
   if (quiet) return;
+  // The message is about the car the employee wants ("אני רוצה ATTO 3"), not today's car: nothing to ask about it.
+  if (found.kind === 'none' && direction.to.length && !direction.from.length) return;
   if (found.kind === 'choose') {
     result.vehicleChoices = found.rows;
     const names = found.rows.map(row => row.display_name);
@@ -283,7 +417,9 @@ async function currentVehicleFrom(state: AdvisorState, text: string, modelName: 
 export type FinancialNote = { field?: FactField; text: string; explicit: boolean };
 export type AppliedFacts = { notes: FinancialNote[]; accepted: number; unknownNow: FactField[]; offerRepresentative?: string;
   /** Catalog cars to choose from for the current car (shown as buttons). */
-  vehicleChoices?: CatalogRow[] };
+  vehicleChoices?: CatalogRow[];
+  /** Model values dropped because the message names neither their field nor answers the question on screen. */
+  unanchored?: number };
 const explicitValue = (evidence: string) => numbersIn(evidence).length > 0 || negation(evidence);
 // "מה יקרה אם אוותר על רכב?" describes a possible future, never the car situation today.
 export const hypothetical = (text: string) => /(?:^|[^\p{L}])ו?(?:אם|מה יקרה|מה יהיה|במקרה ש)(?=$|[^\p{L}])/u.test(text);
@@ -294,7 +430,7 @@ const CURRENT_CAR_FIELDS: FactField[] = ['current_vehicle_id', 'current_particip
  * server even when the model returned no operation. It goes through the same evidence and range checks.
  */
 async function answerPendingField(state: AdvisorState, latest: ConversationMessageRow, result: AppliedFacts,
-  deps: Pick<FinancialDependencies, 'findVehicles' | 'catalogRows'>) {
+  deps: Pick<FinancialDependencies, 'findVehicles' | 'catalogRows'>, context: VehicleContext = {}) {
   const field = state.pendingField;
   const body = latest.body.trim();
   // The current car may be written as a phrase ("כן, יונדאי טוסון מצ'כיה"); other answers are short values.
@@ -310,7 +446,7 @@ async function answerPendingField(state: AdvisorState, latest: ConversationMessa
   if (kind === 'vehicle') {
     const awaiting = awaitedRepresentativeFields(state).includes('current_vehicle_id');
     if (!awaiting && negation(body) && !numbersIn(body).length && !/[A-Za-z]/.test(body)) { putFact(state, field, 'NONE', latest.id); result.accepted++; return; }
-    await currentVehicleFrom(state, body, undefined, latest, deps, result, awaiting);
+    await currentVehicleFrom(state, body, undefined, latest, deps, result, awaiting, context);
     return;
   }
   const numbers = [...new Set(numbersIn(body))];
@@ -320,18 +456,46 @@ async function answerPendingField(state: AdvisorState, latest: ConversationMessa
   if (checked.ok) { putFact(state, field, checked.value, latest.id); result.accepted++; } else result.notes.push({ field, text: checked.note, explicit: true });
 }
 
+export type ApplyOptions = VehicleContext & {
+  /** Read values written next to field names in the employee's own words (not for what-ifs, codes or forms). */
+  extract?: boolean;
+  /** The message asks for a representative: it is not an answer to the question on screen. */
+  notAnAnswer?: boolean;
+};
 export async function applyFinancialOperations(state: AdvisorState, operations: FinancialOperation[], latest: ConversationMessageRow,
-  deps: Pick<FinancialDependencies, 'findVehicles' | 'catalogRows'>): Promise<AppliedFacts> {
+  deps: Pick<FinancialDependencies, 'findVehicles' | 'catalogRows'>, options: ApplyOptions = {}): Promise<AppliedFacts> {
   const result: AppliedFacts = { notes: [], accepted: 0, unknownNow: [] };
   const notes = result.notes;
+  // Values written next to field names are read by the server ("שכר 18,500, ... נקודות זיכוי 2.75 ו־2 ילדים"): all of them,
+  // and they replace a model's reading of those fields (a model may skip some, or take "2" from "2 ילדים" as the points).
+  const extracted = options.extract ? extractFieldValues(latest.body) : [];
+  const extractedFields = new Set<FactField>(extracted.map(operation => operation.field));
+  // A model value counts only for a field the message names, or as the answer to the question on screen: a bare "0"
+  // under the summary is not permission to change some field.
+  let unanchored = 0;
+  operations = [...operations.filter(operation => {
+    if (operation.type !== 'report_fact' && operation.type !== 'unknown_fact') return true;
+    if (extractedFields.has(operation.field)) return false;
+    if ((operation.field === state.pendingField && !options.notAnAnswer) || fieldNamedIn(operation.field, latest.body)) return true;
+    unanchored++;
+    return false;
+  }), ...extracted].map((operation, index) => ({ operation, index,
+    at: ('field' in operation ? fieldMentions(latest.body).find(item => item.field === operation.field)?.start : undefined) ?? latest.body.indexOf(operation.evidence) }))
+    // In the order written, as the employee said them.
+    .sort((a, b) => (a.at < 0 || b.at < 0 ? 0 : a.at - b.at) || a.index - b.index).map(item => item.operation);
+  if (unanchored) { result.unanchored = unanchored; console.info('[carwise.ai.financial]', { droppedUnanchoredValues: unanchored }); }
   // While a representative checks the current car, the employee may still name it in any later message ("בעצם יש לי TUCSON").
   const carAwaited = awaitedRepresentativeFields(state).includes('current_vehicle_id') &&
     state.pendingField !== 'current_vehicle_id' && !state.pendingFacts.some(fact => fact.field === 'current_vehicle_id') &&
     !operations.some(operation => operation.type === 'report_current_vehicle');
-  if (carAwaited && OWN_CAR.test(latest.body)) await currentVehicleFrom(state, latest.body, undefined, latest, deps, result, true);
+  if (carAwaited && OWN_CAR.test(latest.body)) await currentVehicleFrom(state, latest.body, undefined, latest, deps, result, true, options);
   // The model reported nothing usable for the question on screen: the server reads the answer itself.
   const answersPending = operations.some(operation => 'field' in operation ? operation.field === state.pendingField : true);
-  if (!operations.length || !answersPending && state.pendingField === 'current_vehicle_id') { await answerPendingField(state, latest, result, deps); if (!operations.length) return result; }
+  if (!options.notAnAnswer && (!operations.length || !answersPending && state.pendingField === 'current_vehicle_id')) {
+    await answerPendingField(state, latest, result, deps, options);
+    if (!operations.length) return result;
+  }
+  if (!operations.length) return result;
   const future = hypothetical(latest.body);
   for (const operation of operations) {
     if (!latest.body.includes(operation.evidence)) continue;
@@ -355,7 +519,7 @@ export async function applyFinancialOperations(state: AdvisorState, operations: 
     } else {
       // The employee's words decide; the model's name (possibly a catalog spelling of Hebrew text, or a guess such as
       // "HYUNDAI TUCSON" for "יונדאי צ'כיה") is used only when the words name nothing in the catalog.
-      await currentVehicleFrom(state, latest.body, operation.name, latest, deps, result);
+      await currentVehicleFrom(state, latest.body, operation.name, latest, deps, result, false, options);
     }
   }
   return result;

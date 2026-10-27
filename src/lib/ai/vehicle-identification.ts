@@ -91,6 +91,95 @@ export function identifyVehicle(text: string, rows: CatalogRow[]): VehicleIdenti
   return { kind: 'none' };
 }
 
+/** Drive types written as an answer ("היברידי", "חשמלית"), in the catalog's own spelling. */
+export function driveTypeIn(text: string): string | undefined {
+  const value = text.match(/(?:^|[^\p{L}])[והב]?(חשמלי(?:ת|ים|ות)?|היברידי(?:ת|ים|ות)?|בנזין|פלאג[-־ ]?אין)(?=$|[^\p{L}])/u)?.[1];
+  if (!value) return undefined;
+  return value.startsWith('חשמלי') ? 'חשמלי' : value.startsWith('היברידי') ? 'היברידי' : value.startsWith('פלאג') ? 'פלאג-אין' : 'בנזין';
+}
+
+export type DirectedVehicle = { row: CatalogRow; text: string };
+const BRAND_WORD = new RegExp(`(?:${BRANDS.flatMap(brand => brand.aliases).map(alias => alias.replace(/ /g, '\\s+')).join('|')})[\\s\\-־]*$`, 'iu');
+// Words before a name that make it the car the employee drives TODAY ("מ-", "במקום", "יש לי", "לעומת").
+// ("מה ATTO 3 עולה?" is a question word, not "from": "מה" counts only as "מה-".)
+const FROM_BEFORE = [/(?:^|[^\p{L}])ו?(?:מ[\s\-־]*|מה[\-־]\s*)$/u, /(?:במקום|לעומת|מאשר|להחליף(?:\s+את)?)[\s\-־]*(?:ה[\s\-־]*)?$/u,
+  /(?:יש\s+לי|הרכב\s+(?:שלי|הנוכחי(?:\s+שלי)?|הצמוד(?:\s+שלי)?)(?:\s+(?:הוא|זה))?|נוהג(?:ת)?\s+ב|נוסע(?:ת)?\s+(?:עם|ב)|כיום|היום)[\s:\-־]*(?:ה[\s\-־]*)?$/u];
+// ...and the car the employee WANTS ("ל-", "לעבור ל", "רוצה", "להחליף ... ב-").
+const TO_BEFORE = [/(?:^|[^\p{L}])ו?לה?[\s\-־]*$/u,
+  /(?:רוצה|רוצים|מעוניין|מעוניינת|שוקל|שוקלת|בוחר|בוחרת|לבחור|לקחת)(?:\s+(?:את|ב|ל))?[\s\-־]*(?:ה[\s\-־]*)?$/u];
+/**
+ * Which written catalog cars are the employee's car today and which are the car they want, from the words directly
+ * before each name: "לעבור מ-COROLLA CROSS ל-BYD ATTO 3", "במקום הקורולה קרוס", "יש לי COROLLA CROSS ואני רוצה ATTO 3".
+ * A brand word between them ("ל-BYD ATTO 3") is skipped. A name with no such words is neither.
+ */
+export function vehicleDirection(text: string, rows: CatalogRow[]): { from: DirectedVehicle[]; to: DirectedVehicle[] } {
+  const replace = /להחליף/u.test(text);
+  const hits: Array<{ item: DirectedVehicle; start: number; end: number; side?: 'from' | 'to' }> = [];
+  for (const row of rows) {
+    for (const spelling of [row.display_name, ...(MODEL_ALIASES[row.display_name] ?? [])]) {
+      const pattern = spelling.split(/\s+/).map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\s\\-־]*');
+      // A Hebrew spelling may carry its prefix letters ("מקורולה קרוס", "לאטו 3").
+      const found = new RegExp(`(?:^|[^\\p{L}\\p{N}])((?:[ומלבה]{1,2})?)(${pattern})(?![\\p{L}\\p{N}])`, 'giu');
+      for (const match of text.matchAll(found)) {
+        const end = match.index! + match[0].length;
+        const start = end - match[2].length - match[1].length;
+        const before = text.slice(Math.max(0, start - 40), start).replace(BRAND_WORD, '');
+        // Prefix letters written on the name itself ("מקורולה קרוס", "לאטו 3") decide first.
+        // (A bare article "ה" says nothing: "במקום הקורולה קרוס" is decided by the words before it.)
+        const attached = match[1].replace(/^ו/u, '').replace(/^ה$/u, '');
+        // "להחליף את X ב-Y": after "להחליף", "ב-" names the wanted car.
+        const replacing = replace && (attached.startsWith('ב') || /(?:^|[^\p{L}])ב[\s\-־]*$/u.test(before));
+        const side = attached.startsWith('מ') || (!attached && !replacing && FROM_BEFORE.some(rule => rule.test(before))) ? 'from'
+          : attached.startsWith('ל') || replacing || (!attached && TO_BEFORE.some(rule => rule.test(before))) ? 'to' : undefined;
+        hits.push({ item: { row, text: match[2] }, start, end, side });
+      }
+    }
+  }
+  // "COROLLA CROSS" also contains "COROLLA": the longer name written is the one meant.
+  const kept = hits.filter(hit => !hits.some(other => other !== hit && other.start <= hit.start && other.end >= hit.end && other.end - other.start > hit.end - hit.start));
+  const from = new Map(kept.filter(hit => hit.side === 'from').map(hit => [hit.item.row.id, hit.item]));
+  // A car named as both (e.g. repeated) counts as the wanted one only if it is never named as today's car.
+  const to = new Map(kept.filter(hit => hit.side === 'to' && !from.has(hit.item.row.id)).map(hit => [hit.item.row.id, hit.item]));
+  return { from: [...from.values()], to: [...to.values()] };
+}
+
+/** A brand or the word "מודל" written in Hebrew ("טסלה מודל Y"): the message may name a car without Latin words. */
+export function namesVehicleInHebrew(text: string): boolean {
+  const normalized = normalizeVehicleText(text);
+  return /(?:^|[^\p{L}])[ובלמה]?מודל(?=$|[^\p{L}])/u.test(text) ||
+    BRANDS.some(brand => brand.aliases.some(alias => /\p{Script=Hebrew}/u.test(alias) && phrase(normalized, normalizeVehicleText(alias))));
+}
+
+/**
+ * Car models the employee names that are not in the active catalog ("Tesla Model Y", "מודל Y"), with the catalog cars of
+ * the same brand. A brand followed by a model word that names no catalog row counts; a brand alone ("יש לכם קיה?") or a
+ * catalog model ("BYD ATTO 3") does not.
+ */
+export function unlistedVehicles(text: string, rows: CatalogRow[]): Array<{ name: string; brandRows: CatalogRow[] }> {
+  const found = new Map<string, { name: string; brandRows: CatalogRow[] }>();
+  const known = (words: string) => vehiclesMentioned(words, rows).length > 0 ||
+    rows.some(row => (MODEL_ALIASES[row.display_name] ?? []).some(alias => phrase(normalizeVehicleText(words), normalizeVehicleText(alias))));
+  const model = '((?:model|מודל)[\\s\\-־]*[A-Za-z0-9]{1,4}|[A-Za-z][A-Za-z0-9]{0,11}(?:[\\s\\-־]+[A-Za-z0-9]{1,6})?)';
+  for (const brand of BRANDS) {
+    const ofBrand = rows.filter(row => normalizeVehicleText(row.manufacturer_name).startsWith(normalizeVehicleText(brand.catalog)));
+    for (const alias of brand.aliases) {
+      const pattern = new RegExp(`(?:^|[^\\p{L}\\p{N}])[ובלמה]?(${alias.replace(/ /g, '\\s+')})[\\s\\-־]+${model}(?![\\p{L}\\p{N}])`, 'giu');
+      for (const match of text.matchAll(pattern)) {
+        if (known(match[2]) || known(`${match[1]} ${match[2]}`)) continue;
+        const name = `${match[1]} ${match[2]}`.replace(/\s+/g, ' ');
+        found.set(normalizeVehicleText(name), { name, brandRows: ofBrand });
+      }
+    }
+  }
+  // "Model Y" without a brand: a model word with a short code that names no catalog row.
+  for (const match of text.matchAll(/(?:^|[^\p{L}\p{N}])((?:model|מודל)[\s\-־]*[A-Za-z0-9]{1,3})(?![\p{L}\p{N}])/giu)) {
+    if (known(match[1]) || [...found.values()].some(item => normalizeVehicleText(item.name).includes(normalizeVehicleText(match[1])))) continue;
+    const tesla = rows.filter(row => normalizeVehicleText(row.manufacturer_name).startsWith(normalizeVehicleText('טסלה')));
+    found.set(normalizeVehicleText(match[1]), { name: match[1], brandRows: tesla });
+  }
+  return [...found.values()];
+}
+
 /**
  * The employee's text decides; the language model's suggested name only fills in when the text names nothing.
  * A suggestion that is not among the candidates the text allows is ignored.

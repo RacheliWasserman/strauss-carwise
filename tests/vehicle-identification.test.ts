@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { cars } from '../src/lib/data';
-import { identifyCurrentVehicle, identifyVehicle, normalizeVehicleText } from '../src/lib/ai/vehicle-identification';
+import { driveTypeIn, identifyCurrentVehicle, identifyVehicle, normalizeVehicleText, vehicleDirection } from '../src/lib/ai/vehicle-identification';
 
 // The real catalog data of the challenge, as active catalog rows.
 const rows = cars.map(car => ({ id: car['מזהה'], display_name: car['דגם (כינוי מסחרי)'], manufacturer_name: car['תוצר'],
@@ -39,5 +39,31 @@ describe('identifying the current car from the employee\'s words', () => {
   it('normalizes Hebrew punctuation instead of splitting words', () => {
     expect(normalizeVehicleText("צ'כיה")).toBe('צכיה');expect(normalizeVehicleText('צ׳כיה')).toBe('צכיה');
     expect(normalizeVehicleText('מ.ג סין')).toBe('מג סין');
+  });
+});
+
+describe('today\'s car and the wanted car in one sentence', () => {
+  const sides = (text: string) => { const found = vehicleDirection(text, rows); return { from: found.from.map(item => item.row.id), to: found.to.map(item => item.row.id) }; };
+  it.each([
+    ['אני רוצה לעבור מ-COROLLA CROSS ל-BYD ATTO 3. כמה זה ישפיע לי על הנטו?', ['CAR-09'], ['CAR-10']],
+    ['אני רוצה לעבור מ-COROLLA CROSS ל-ATTO 3', ['CAR-09'], ['CAR-10']],
+    ['לעבור מקורולה קרוס לאטו 3', ['CAR-09'], ['CAR-10']],
+    ['מ COROLLA CROSS ל ATTO 3', ['CAR-09'], ['CAR-10']],
+    ['במקום הקורולה קרוס אני רוצה ATTO 3', ['CAR-09'], ['CAR-10']],
+    ['יש לי COROLLA CROSS ואני רוצה ATTO 3', ['CAR-09'], ['CAR-10']],
+    ['להחליף את COROLLA CROSS ב-ATTO 3', ['CAR-09'], ['CAR-10']],
+    ['ATTO 3 לעומת COROLLA CROSS', ['CAR-09'], []],
+    ['הרכב הנוכחי שלי הוא COROLLA CROSS', ['CAR-09'], []]
+  ])('"%s"', (text, from, to) => expect(sides(text)).toEqual({ from, to }));
+  it('names without such words are neither; a question word is not "from"', () => {
+    expect(sides('מה ATTO 3 עולה?')).toEqual({ from: [], to: [] });
+    expect(sides('כמה BYD Atto 3 ישנה לי בנטו לעומת הרכב שיש לי היום?')).toEqual({ from: [], to: [] });
+    expect(sides('COROLLA CROSS')).toEqual({ from: [], to: [] });
+    // "COROLLA" inside "COROLLA CROSS" is not a second car.
+    expect(sides('לעבור מ-COROLLA CROSS ל-MAZDA 3')).toEqual({ from: ['CAR-09'], to: ['CAR-13'] });
+  });
+  it('reads a drive type written as an answer', () => {
+    expect([driveTypeIn('היברידי'), driveTypeIn('חשמלית'), driveTypeIn('בנזין'), driveTypeIn('פלאג-אין'), driveTypeIn('COROLLA')])
+      .toEqual(['היברידי', 'חשמלי', 'בנזין', 'פלאג-אין', undefined]);
   });
 });

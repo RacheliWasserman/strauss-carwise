@@ -9,7 +9,7 @@ import officialTable from '../data/occupations.json';
 import rulesData from '../data/rules.json';
 import {cars,employees,references,findCarByName,findOccupation,lookupOfficialValue} from '../src/lib/data';
 import {calculateNet,displayShekels,type Choice} from '../src/lib/calculator';
-import {runAdvisorTurn,advisorPlanSchema} from '../src/lib/ai/advisor-orchestrator';
+import {runAdvisorTurn,advisorPlanSchema,type AdvisorPlan} from '../src/lib/ai/advisor-orchestrator';
 import {InvalidProviderOutput,ProviderFailure} from '../src/lib/ai/providers';
 import type {AdvisorState} from '../src/lib/ai/advisor-state';
 import {advisorStateSchema as productionStateSchema} from './fixtures/production-advisor-state-565e426';
@@ -92,12 +92,16 @@ function employee(userId=randomUUID(),account?:{first:string;last:string},option
     const messages:ConversationMessageRow[]=[];
     let state:AdvisorState|null=null;
     const plan=vi.fn(async()=>advisorPlanSchema.parse({action:'help',filters:{}}));
+    // The model output given for a turn is used only if that turn consults the model; a turn the server answers by
+    // itself (a button code, an explicit representative request) never leaves it behind for the next turn.
+    let given:AdvisorPlan|undefined;
+    const consult=async()=>{ if (given) { plan.mockResolvedValueOnce(given);given=undefined; } return plan(); };
     /** Processes the latest employee message from the last persisted state; a failed turn persists nothing. */
     async function process(model?:Plan):Promise<CatalogMessage> {
-      if (model) plan.mockResolvedValueOnce(advisorPlanSchema.parse(model));
-      const result=await runAdvisorTurn(userId,conversationId,[...messages],state,{occupations:async()=>occupations,plan,
+      given=model?advisorPlanSchema.parse(model):undefined;
+      const result=await runAdvisorTurn(userId,conversationId,[...messages],state,{occupations:async()=>occupations,plan:consult,
         catalog:{search,rules:async()=>rules},financial,representative,representativeRequests,firstName:async()=>account?.first??null,
-        multipleRepresentativeRequests:multiple});
+        multipleRepresentativeRequests:multiple}).finally(()=>{given=undefined;});
       state=JSON.parse(JSON.stringify(result.state));
       // Rollback safety: with several requests off, every saved state still loads in Production 565e426 (strict schema).
       if (!multiple) productionStateSchema.parse(state);
@@ -823,7 +827,7 @@ describe('vehicle selection is a validated state transition, not a new search',(
     const {chat}=await productManagerShownElectric();
     const reply=await chat.turn('אני רוצה TESLA MODEL Y',{action:'catalog',filters:{name:'MODEL Y'}});
     expect(chat.state.selectedVehicleIds??[]).toEqual([]);expect(reply.cards).toEqual([]);
-    expect(reply.text).toContain('לא מצאתי בקטלוג החברה');
+    expect(reply.text).toContain('TESLA MODEL Y לא נמצא בקטלוג הרכבים הפעיל של החברה');
   });
   it('never takes the car the employee drives today as the car they want',async()=>{
     const person=employee();const chat=person.conversation();
@@ -2860,5 +2864,252 @@ describe('context routing regressions',()=>{
     expect(reply.purpose).toBe('profile_recall');
     expect(reply.text).toContain('MAZDA 3');
     expect(reply.calculation).toBeUndefined();
+  });
+});
+
+describe('REAL TESTER CONVERSATION (27.10): the employee\'s own words decide, whatever a model returns',()=>{
+  const key=(title:string)=>occupations.find(row=>row.title===title)!.key;
+  const role={type:'report_occupation',reportedTitle:'מנהלת מוצר',candidateKeys:[key('מנהל/ת מוצר')],certainty:'clear',evidence:'מנהלת מוצר'};
+  const SWITCH='אני מנהלת מוצר ואני רוצה לעבור מ-COROLLA CROSS ל-BYD ATTO 3. כמה זה ישפיע לי על הנטו?';
+  const FACTS='שכר 18,500, עמלות 0, בונוס 0, פנסיה 6%, השתלמות 2.5%, נקודות זיכוי 2.75 ו־2 ילדים';
+  const REP='אני רוצה לפתוח פנייה לנציג לגבי גובה ההשתתפות החודשית ברכב שלי היום';
+  const PARTICIPATION_TOPIC='שדה חסר: השתתפות חודשית ברכב היום [current_participation]';
+  const WHICH_DETAIL=/^לא בטוח שהבנתי איזה פרט לשנות\. אפשר לכתוב את שם הפרט ואת הערך החדש\? למשל: עמלות חודשיות — 0 ₪\.$/u;
+  const REP_ID=randomUUID();
+  const allFacts=[fact('base_salary',18500,'שכר 18,500'),fact('commissions',0,'עמלות 0'),fact('bonus',0,'בונוס 0'),fact('employee_pension_percent',6,'פנסיה 6%'),
+    fact('employee_study_fund_percent',2.5,'השתלמות 2.5%'),fact('tax_credit_points',2.75,'נקודות זיכוי 2.75'),fact('eligible_children_count',2,'2 ילדים')];
+  // What a model may return for each message: right, incomplete, wrong, or nothing usable.
+  const switchPlans:Record<string,Plan>={
+    correct:{action:'net',goal:'net',filters:{},operations:[role,{type:'report_current_vehicle',hasCar:true,name:'COROLLA CROSS',evidence:'מ-COROLLA CROSS'},
+      {type:'select_vehicles',vehicleIds:[],names:['ATTO 3'],evidence:'BYD ATTO 3'}]},
+    bothAsWanted:{action:'net',goal:'net',filters:{},operations:[role,{type:'select_vehicles',vehicleIds:[],names:['COROLLA CROSS','ATTO 3'],evidence:'מ-COROLLA CROSS ל-BYD ATTO 3'}]},
+    nothing:{action:'net',goal:'net',filters:{}}
+  };
+  const factPlans:Record<string,Plan>={
+    correct:{action:'net',filters:{},operations:allFacts},
+    skipsSalaryAndChildren:{action:'net',filters:{},operations:allFacts.filter(op=>!['base_salary','eligible_children_count'].includes(op.field))},
+    pointsFromChildren:{action:'net',filters:{},operations:[...allFacts.filter(op=>op.field!=='tax_credit_points'),fact('tax_credit_points',2,'נקודות זיכוי 2.75 ו־2 ילדים')]},
+    nothing:{action:'help',filters:{}}
+  };
+  const repPlans:Record<string,Plan>={
+    representative:{action:'unknown_group',filters:{},operations:[{type:'request_representative',evidence:'פנייה לנציג'}]},
+    unknownParticipation:{action:'net',filters:{},operations:[{type:'unknown_fact',field:'current_participation',evidence:'גובה ההשתתפות החודשית'}]},
+    readAsTodaysCar:{action:'net',filters:{},operations:[{type:'report_current_vehicle',hasCar:true,name:'COROLLA CROSS',evidence:'ברכב שלי היום'}]},
+    nothing:{action:'help',filters:{}}
+  };
+  const zeroPlans:Record<string,Plan>={commissions:{action:'net',filters:{},operations:[fact('commissions',0,'0')]},
+    bonus:{action:'net',filters:{},operations:[fact('bonus',0,'0')]},children:{action:'net',filters:{},operations:[fact('eligible_children_count',0,'0')]},
+    nothing:{action:'help',filters:{}}};
+  const values=(state:AdvisorState)=>Object.fromEntries(state.pendingFacts.map(item=>[item.field,item.value]));
+  const row=(reply:CatalogMessage,label:string)=>reply.approval?.rows.find(item=>item.label===label)?.value;
+  async function throughFacts(switchPlan:Plan,factPlan:Plan) {
+    const person=employee(randomUUID(),{first:'נועה',last:'לוי'});const chat=person.conversation();
+    const first=await chat.turn(SWITCH,switchPlan);
+    const second=await chat.turn(FACTS,factPlan);
+    return {person,chat,first,second};
+  }
+  const pairs=Object.keys(switchPlans).flatMap(a=>Object.keys(factPlans).map(b=>[a,b] as const));
+  it.each(pairs)('keeps both cars, takes all seven values from one message, never asks for a given one (model: %s / %s)',async(switchPlan,factPlan)=>{
+    const {chat,first,second}=await throughFacts(switchPlans[switchPlan],factPlans[factPlan]);
+    // COROLLA CROSS is today's car (the baseline); only ATTO 3 is priced. Nobody asks which of them is today's car.
+    expect(first.cards).toEqual([]);expect(first.text).not.toContain('איזה מהם');expect(first.text).toContain('מה שכר הבסיס החודשי שלך ברוטו?');
+    expect(chat.state.selectedVehicleIds).toEqual(['CAR-10']);
+    expect(second.cards).toEqual([]);expect(second.text).not.toContain('שכר הבסיס');
+    expect(values(chat.state)).toEqual({current_vehicle_id:'CAR-09',base_salary:18500,commissions:0,bonus:0,employee_pension_percent:6,
+      employee_study_fund_percent:2.5,tax_credit_points:2.75,eligible_children_count:2});
+    // The only missing value is asked next: the participation of today's car.
+    expect(second.text).toContain('כמה עולה היום ההשתתפות החודשית שלך ברכב?');expect(chat.state.pendingField).toBe('current_participation');
+    expect(chat.state.selectedVehicleIds).toEqual(['CAR-10']);expect(chat.state.activeGoal).toEqual({kind:'vehicles',vehicleIds:['CAR-10']});
+  });
+  it.each(Object.keys(repPlans))('an explicit request for a representative about the participation opens exactly that (model: %s)',async plan=>{
+    const {person,chat}=await throughFacts(switchPlans.correct,factPlans.correct);
+    const before=values(chat.state);
+    const offer=await chat.turn(REP,repPlans[plan]);
+    expect(offer.text.startsWith('בשמחה. אפשר לפתוח פנייה לנציג לגבי השתתפות חודשית ברכב היום.')).toBe(true);
+    expect(offer.text).not.toMatch(/לא מצאתי|דגם|איזה מהם/u);expect(offer.cards).toEqual([]);expect(offer.calculation).toBeUndefined();
+    expect(values(chat.state)).toEqual(before);
+    const opened=await chat.turn(offer.actions!.find(action=>action.body.includes('#R'))!.body);
+    expect(opened.text).toContain('פתחתי פנייה לנציג לגבי השתתפות חודשית ברכב היום ✓');
+    expect(person.requests.map(item=>item.topic)).toEqual([PARTICIPATION_TOPIC]);
+  });
+  it('the whole flow: request → answer → summary → bare numbers change nothing → approval → comparison → an unlisted model',async()=>{
+    const {person,chat}=await throughFacts(switchPlans.correct,factPlans.correct);
+    const offer=await chat.turn(REP,repPlans.nothing);
+    const waiting=await chat.turn(offer.actions!.find(action=>action.body.includes('#R'))!.body);
+    expect(waiting.text).toContain('פתחתי פנייה לנציג');
+    person.claim(person.requests[0].id,REP_ID);
+    const answer=chat.representativeSays(JSON.stringify({kind:'carwise.rep-answer.v1',requestId:person.requests[0].id,field:'current_participation',
+      value:300,answeredAt:new Date().toISOString()}),REP_ID);
+    const summary=await chat.turn(`שימוש בתשובת הנציג #Q${answer.id.slice(0,8).toUpperCase()}`);
+    expect(row(summary,'נקודות זיכוי')).toBe('2.75');expect(row(summary,'ילדים עד גיל 23')).toBe('2');
+    expect(row(summary,'הרכב הצמוד היום')).toBe('COROLLA CROSS');expect(row(summary,'השתתפות חודשית ברכב היום')).toBe('300 ₪');
+    const code=chat.state.pendingApproval!.code;const facts=JSON.stringify(chat.state.pendingFacts);
+    // "0" again and again under the summary: no field changes, no new summary, nothing saved; the model's guess is ignored.
+    for (const plan of Object.values(zeroPlans)) {
+      const reply=await chat.turn('0',plan);
+      expect(reply.text).toMatch(WHICH_DETAIL);expect(reply.approval).toBeUndefined();expect(reply.calculation).toBeUndefined();
+      expect(chat.state.pendingApproval?.code).toBe(code);expect(JSON.stringify(chat.state.pendingFacts)).toBe(facts);
+    }
+    expect(person.financial.createVersion).not.toHaveBeenCalled();expect(person.versions).toHaveLength(0);
+    // The original summary's button still approves exactly what it shows.
+    const result=await chat.turn(approve(summary));
+    expect(person.versions.map(item=>[item.status,item.tax_credit_points,item.eligible_children_count,item.current_vehicle_id,item.current_participation]))
+      .toEqual([['confirmed',2.75,2,'CAR-09',300]]);
+    expect(result.calculation?.baseline).toMatchObject({name:'היום: COROLLA CROSS',net:11032});
+    expect(result.calculation?.scenarios.map(item=>[item.vehicleId,item.delta])).toEqual([['CAR-10',661]]);
+    // A model that is not in the catalog: said plainly, never the earlier ATTO 3 result again.
+    const runs=person.runs.length;
+    for (const plan of [{action:'net',goal:'net',filters:{}},{action:'net',goal:'net',filters:{},operations:[{type:'select_vehicles',vehicleIds:[],names:['MODEL Y'],evidence:'Tesla Model Y'}]}] as Plan[]) {
+      const modelY=await chat.turn('וכמה Tesla Model Y ישנה לי בנטו?',plan);
+      expect(modelY.text.startsWith('Tesla Model Y לא נמצא בקטלוג הרכבים הפעיל של החברה, ולכן לא חישבתי אותו')).toBe(true);
+      expect(modelY.calculation).toBeUndefined();expect(modelY.text).not.toContain('ATTO 3');
+    }
+    expect(person.runs).toHaveLength(runs);expect(chat.state.selectedVehicleIds).toEqual(['CAR-10']);
+  });
+  it.each([['nothing',{action:'net',filters:{}}],['the two facts',{action:'net',filters:{},operations:[fact('tax_credit_points',2.75,'נקודות הזיכוי שלי הן 2.75'),
+    fact('eligible_children_count',2,'2 ילדים')]}],['a guessed extra field',{action:'net',filters:{},operations:[fact('tax_credit_points',2.75,'2.75'),fact('commissions',2,'2')]}]] as Array<[string,Plan]>)(
+    'correcting two named details updates exactly those two in a new summary (model: %s)',async(_label,plan)=>{
+    const person=employee(randomUUID(),{first:'נועה',last:'לוי'});const chat=person.conversation();
+    await chat.turn(SWITCH,switchPlans.correct);
+    // The points were written wrong at first ("2"), and no children were mentioned yet.
+    await chat.turn('שכר 18,500, עמלות 0, בונוס 0, פנסיה 6%, השתלמות 2.5%, נקודות זיכוי 2, 0 ילדים',{action:'help',filters:{}});
+    const summary=await chat.turn('300');
+    expect(row(summary,'נקודות זיכוי')).toBe('2');expect(row(summary,'ילדים עד גיל 23')).toBe('0');
+    const corrected=await chat.turn('נקודות הזיכוי שלי הן 2.75 ויש לי 2 ילדים',plan);
+    expect(row(corrected,'נקודות זיכוי')).toBe('2.75');expect(row(corrected,'ילדים עד גיל 23')).toBe('2');
+    for (const label of ['שכר בסיס חודשי ברוטו','עמלות חודשיות','בונוס חודשי','הפרשה לפנסיה','הפרשה לקרן השתלמות','הרכב הצמוד היום','השתתפות חודשית ברכב היום']) {
+      expect(row(corrected,label)).toBe(row(summary,label));
+    }
+    expect(corrected.approval?.code).not.toBe(summary.approval?.code);expect(person.versions).toHaveLength(0);
+  });
+  it.each(Object.keys(switchPlans))('with an approved profile on COROLLA CROSS, the switch question is calculated at once (model: %s)',async plan=>{
+    const person=employee(randomUUID(),{first:'נועה',last:'לוי'});
+    person.versions.push({id:randomUUID(),user_id:person.userId,version:1,status:'confirmed',schema_version:'employee-data-v1',created_at:'2026-10-01T00:00:00.000Z',
+      confirmed_at:'2026-10-01T00:00:00.000Z',display_name:'נועה לוי',occupation_title:'מנהל/ת מוצר',base_salary:18500,commissions:0,bonus:0,employee_pension_percent:6,
+      employee_study_fund_percent:2.5,tax_credit_points:2.75,eligible_children_count:2,current_vehicle_id:'CAR-09',current_participation:300});
+    const reply=await person.conversation().turn(SWITCH,switchPlans[plan]);
+    // The approved car is never asked again or replaced by the car the employee wants.
+    expect(reply.text).not.toMatch(/הרכב הצמוד|איזה מהם|השתתפות/u);expect(reply.approval).toBeUndefined();
+    expect(reply.calculation?.baseline.name).toBe('היום: COROLLA CROSS');
+    expect(reply.calculation?.scenarios.map(item=>[item.vehicleId,item.delta])).toEqual([['CAR-10',661]]);
+    expect(person.versions).toHaveLength(1);expect(person.financial.createVersion).not.toHaveBeenCalled();
+  });
+  it.each([['a drive filter',{action:'catalog',filters:{driveType:'היברידי'}}],
+    ['a search preference',{action:'catalog',filters:{},operations:[{type:'set_preference',field:'driveType',value:'היברידי',evidence:'היברידי'}]}],
+    ['nothing',{action:'help',filters:{}}]] as Array<[string,Plan]>)('"היברידי" answers which of the offered cars is today\'s car; it never lists hybrid cars (model: %s)',async(_label,plan)=>{
+    const chat=employee(randomUUID(),{first:'נועה',last:'לוי'}).conversation();
+    await chat.turn('אני מנהלת מוצר ורוצה לבדוק כמה ATTO 3 ישפיע על הנטו',{action:'net',goal:'net',filters:{},operations:[role,{type:'select_vehicles',vehicleIds:[],names:['ATTO 3'],evidence:'ATTO 3'}]});
+    await chat.turn(FACTS,factPlans.correct);
+    // Only the brand is written: its catalog models are offered as buttons.
+    const offered=await chat.turn('קיה',{action:'net',filters:{},operations:[{type:'report_current_vehicle',hasCar:true,name:'KIA',evidence:'קיה'}]});
+    expect(offered.actions?.map(action=>action.label)).toContain('NIRO');expect(offered.cards).toEqual([]);
+    // "היברידי" is the hybrid among them (NIRO), not a request to list hybrid cars.
+    const reply=await chat.turn('היברידי',plan);
+    expect(reply.cards).toEqual([]);expect(chat.state.preferences.driveType).toBeUndefined();
+    expect(chat.state.pendingFacts.find(item=>item.field==='current_vehicle_id')?.value).toBe('CAR-05');
+    expect(reply.text).toContain('כמה עולה היום ההשתתפות החודשית שלך ברכב?');
+  });
+  it('"היברידי" with no cars offered asks which hybrid, without a catalog listing',async()=>{
+    const chat=employee(randomUUID(),{first:'נועה',last:'לוי'}).conversation();
+    await chat.turn('אני מנהלת מוצר ורוצה לבדוק כמה ATTO 3 ישפיע על הנטו',{action:'net',goal:'net',filters:{},operations:[role,{type:'select_vehicles',vehicleIds:[],names:['ATTO 3'],evidence:'ATTO 3'}]});
+    await chat.turn(FACTS,factPlans.correct);
+    const reply=await chat.turn('היברידי',{action:'catalog',filters:{driveType:'היברידי'}});
+    expect(reply.cards).toEqual([]);expect(chat.state.preferences.driveType).toBeUndefined();
+    expect(reply.text).toBe('איזה רכב היברידי הוא הרכב הצמוד שלך היום: YARIS CROSS HSD, NIRO, COROLLA CROSS או RAV4?');
+    expect(reply.actions?.map(action=>action.label)).toEqual(['YARIS CROSS HSD','NIRO','COROLLA CROSS','RAV4']);
+  });
+  it('a bare number answers only the question on screen; with none on screen it is asked about',async()=>{
+    const chat=employee(randomUUID(),{first:'נועה',last:'לוי'}).conversation();
+    await chat.turn('אני מנהלת מוצר ורוצה לבדוק כמה ATTO 3 ישפיע על הנטו',{action:'net',goal:'net',filters:{},operations:[role]});
+    await chat.turn('18,500');await chat.turn('0',{action:'net',filters:{},operations:[fact('bonus',0,'0')]});
+    // "0" answered the commissions question on screen, not the bonus the model guessed.
+    expect(values(chat.state)).toEqual({base_salary:18500,commissions:0});
+    const after=employee().conversation();
+    const reply=await after.turn('2',{action:'net',filters:{},operations:[fact('eligible_children_count',2,'2')]});
+    expect(reply.text).toMatch(/^לא בטוח שהבנתי לאיזה פרט המספר מתייחס\./u);expect(after.state.pendingFacts).toEqual([]);
+  });
+});
+
+describe('reading the employee\'s words: units for the conversation fixes',()=>{
+  it('numbers with a decimal comma, thousands groups and identifiers',async()=>{
+    const {numbersIn}=await import('../src/lib/ai/financial-flow');
+    expect(numbersIn('נקודות זיכוי 2,75')).toEqual([2.75]);expect(numbersIn('שכר 18,500')).toEqual([18500]);
+    expect(numbersIn('1,5 נקודות')).toEqual([1.5]);expect(numbersIn('אני רוצה BYD DOLPHIN (CAR-03)')).toEqual([]);
+    expect(numbersIn('עמלות 0, בונוס 0')).toEqual([0,0]);
+  });
+  it.each([
+    ['שכר 18,500, עמלות 0, בונוס 0, פנסיה 6%, השתלמות 2.5%, נקודות זיכוי 2.75 ו־2 ילדים',
+      {base_salary:18500,commissions:0,bonus:0,employee_pension_percent:6,employee_study_fund_percent:2.5,tax_credit_points:2.75,eligible_children_count:2}],
+    ['נקודות הזיכוי שלי הן 2.75 ויש לי 2 ילדים',{tax_credit_points:2.75,eligible_children_count:2}],
+    ['2 ילדים ו-2.75 נקודות זיכוי',{eligible_children_count:2,tax_credit_points:2.75}],
+    ['6% לפנסיה ו-2.5% לקרן השתלמות',{employee_pension_percent:6,employee_study_fund_percent:2.5}],
+    ['השכר שלי 18 אלף, אין לי בונוסים ואין לי עמלות',{base_salary:18000,bonus:0,commissions:0}],
+    ['נקודות זיכוי 2,75',{tax_credit_points:2.75}],
+    ['ילדים עד גיל 23: 2',{eligible_children_count:2}],
+    ['כמה זה יעלה לי?',{}],['300',{}],['אני רוצה ATTO 3',{}]
+  ] as Array<[string,Record<string,number>]>)('"%s"',async(text,expected)=>{
+    const {extractFieldValues}=await import('../src/lib/ai/financial-flow');
+    const found=extractFieldValues(text);
+    expect(Object.fromEntries(found.map(item=>[item.field,item.value]))).toEqual(expected);
+    for (const item of found) expect(text).toContain(item.evidence);
+  });
+  it('an explicit request for a human, not a question about one or a job title',async()=>{
+    const {explicitRepresentativeRequest}=await import('../src/lib/ai/advisor-orchestrator');
+    for (const text of ['אני רוצה לפתוח פנייה לנציג לגבי גובה ההשתתפות החודשית','אני רוצה לדבר עם נציג','אפשר בן אדם?','תעבירי אותי לנציגה בבקשה'])
+      expect(explicitRepresentativeRequest(text)).toBe(true);
+    for (const text of ['לא צריך נציג, תודה','מתי הנציג יענה?','כמה ATTO 3 ישנה לי בנטו?'])
+      expect(explicitRepresentativeRequest(text)).toBe(false);
+  });
+  it('a model quote that differs only in punctuation is the employee\'s quote; another quote still fails',async()=>{
+    const {validateAdvisorPlan}=await import('../src/lib/ai/advisor-orchestrator');
+    const userId=randomUUID(),conversationId=randomUUID(),id=randomUUID();
+    const body='נקודות זיכוי 2.75 ו־2 ילדים';
+    const history=[{id,conversation_id:conversationId,sender_type:'employee' as const,sender_user_id:userId,body,client_message_id:null,created_at:new Date().toISOString()}];
+    const state={schemaVersion:1,revision:1,userId,conversationId,lastProcessedMessageId:id,goal:'net',preferences:{},pendingQuestion:null,pendingFacts:[]} as unknown as AdvisorState;
+    const plan=validateAdvisorPlan(JSON.stringify({action:'net',filters:{},operations:[{type:'report_fact',field:'eligible_children_count',value:2,evidence:'ו-2 ילדים'}]}),history,occupations,state);
+    expect(plan.operations[0].evidence).toBe('ו־2 ילדים');
+    expect(()=>validateAdvisorPlan(JSON.stringify({action:'net',filters:{},operations:[{type:'report_fact',field:'eligible_children_count',value:3,evidence:'3 ילדים'}]}),history,occupations,state))
+      .toThrow(InvalidProviderOutput);
+  });
+});
+
+describe('a model outside the catalog written in Hebrew ("טסלה מודל Y") is answered as such, never with an earlier result',()=>{
+  const SWITCH='אני רוצה לעבור מ-COROLLA CROSS ל-BYD ATTO 3. כמה זה ישפיע לי על הנטו?';
+  async function calculated() {
+    const person=employee(randomUUID(),{first:'נועה',last:'לוי'});
+    person.versions.push({id:randomUUID(),user_id:person.userId,version:1,status:'confirmed',schema_version:'employee-data-v1',created_at:'2026-10-01T00:00:00.000Z',
+      confirmed_at:'2026-10-01T00:00:00.000Z',display_name:'נועה לוי',occupation_title:'מנהל/ת מוצר',base_salary:18500,commissions:0,bonus:0,employee_pension_percent:6,
+      employee_study_fund_percent:2.5,tax_credit_points:2.75,eligible_children_count:2,current_vehicle_id:'CAR-09',current_participation:300});
+    const chat=person.conversation();
+    const atto=await chat.turn(SWITCH,{action:'net',goal:'net',filters:{},operations:[{type:'select_vehicles',vehicleIds:[],names:['ATTO 3'],evidence:'BYD ATTO 3'}]});
+    expect(atto.calculation?.scenarios.map(item=>item.vehicleId)).toEqual(['CAR-10']);
+    return {person,chat};
+  }
+  // What a model may return: a net question, a side question, a conversation act, a recall, or the unknown name itself.
+  const plans:Record<string,Plan>={
+    net:{action:'net',goal:'net',filters:{}},
+    sideQuestion:{action:'help',filters:{}},
+    conversation:{action:'help',intent:'conversation',conversationAct:'advice',filters:{}},
+    recall:{action:'help',intent:'profile_recall',recallTopic:'current_vehicle',filters:{}},
+    namesModel:{action:'net',goal:'net',filters:{},operations:[{type:'select_vehicles',vehicleIds:[],names:['MODEL Y'],evidence:'טסלה מודל Y'}]}
+  };
+  const cases=['וכמה טסלה מודל Y ישנה לי בנטו?','כמה מודל Y ישנה לי בנטו?'].flatMap(text=>Object.keys(plans).map(plan=>[text,plan] as const));
+  it.each(cases)('"%s" (model: %s)',async(text,plan)=>{
+    const {person,chat}=await calculated();
+    const runs=person.runs.length;
+    const reply=await chat.turn(text,plans[plan]);
+    const name=text.includes('טסלה')?'טסלה מודל Y':'מודל Y';
+    expect(reply.text.startsWith(`${name} לא נמצא בקטלוג הרכבים הפעיל של החברה, ולכן לא חישבתי אותו ולא שיניתי את הבחירה.`)).toBe(true);
+    expect(reply.calculation).toBeUndefined();expect(reply.cards).toEqual([]);expect(reply.text).not.toContain('ATTO 3');
+    expect(person.runs).toHaveLength(runs);expect(chat.state.selectedVehicleIds).toEqual(['CAR-10']);
+    expect(person.versions).toHaveLength(1);
+  });
+  it('a catalog model in Hebrew or a brand alone is not reported as missing',async()=>{
+    const {unlistedVehicles,namesVehicleInHebrew}=await import('../src/lib/ai/vehicle-identification');
+    const rows=catalog.map(advisorRow);
+    expect(unlistedVehicles('כמה טסלה מודל 3 ישנה לי בנטו?',rows)).toEqual([]);
+    expect(unlistedVehicles('יש לכם טסלה?',rows)).toEqual([]);
+    expect(unlistedVehicles('וכמה טסלה מודל Y ישנה לי בנטו?',rows).map(item=>[item.name,item.brandRows.map(row=>row.id)])).toEqual([['טסלה מודל Y',['CAR-14']]]);
+    expect([namesVehicleInHebrew('טסלה מודל Y'),namesVehicleInHebrew('כמה זה ישנה לי בנטו?')]).toEqual([true,false]);
   });
 });
