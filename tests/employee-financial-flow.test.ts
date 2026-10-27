@@ -169,7 +169,7 @@ describe('financial waiver what-if outranks generic hypothetical side routing',(
     const choice:Choice=waiver?{type:'waiver'}:{type:'car',car:findCarByName('PICANTO')};
     const net=displayShekels(calculateNet(assumed,choice,rules,toCalculatorOccupation(role)).net);
     expect(reply.text).toContain(net.toLocaleString('he-IL'));expect(reply.text).toContain('30,000');
-    expect(reply.text).toContain('סימולציה היפותטית בלבד');expect(reply.text).toContain('באותה בחירה לפי הפרופיל המאושר');
+    expect(reply.text).toContain('בדקתי לפי שכר בסיס של');expect(reply.text).toContain('עם השכר המאושר');expect(reply.text).toContain('הפרטים השמורים שלך נשארו כמו שהם');
     expect(reply.cards).toEqual([]);expect(reply.approval).toBeUndefined();
     expect(person.versions).toEqual(profile);expect(person.runs).toHaveLength(runs);
     expect(person.financial.createVersion).not.toHaveBeenCalled();expect(person.financial.confirmVersion).not.toHaveBeenCalled();
@@ -3111,5 +3111,602 @@ describe('a model outside the catalog written in Hebrew ("טסלה מודל Y") 
     expect(unlistedVehicles('יש לכם טסלה?',rows)).toEqual([]);
     expect(unlistedVehicles('וכמה טסלה מודל Y ישנה לי בנטו?',rows).map(item=>[item.name,item.brandRows.map(row=>row.id)])).toEqual([['טסלה מודל Y',['CAR-14']]]);
     expect([namesVehicleInHebrew('טסלה מודל Y'),namesVehicleInHebrew('כמה זה ישנה לי בנטו?')]).toEqual([true,false]);
+  });
+});
+
+describe('today\'s car written in Hebrew is kept from the first message (real local run, 27.10)',()=>{
+  const key=(title:string)=>occupations.find(row=>row.title===title)!.key;
+  const FIRST='אם אעבור מהקורולה קרוס ל-BYD ATTO 3 החשמלי - כמה זה ישנה לי בנטו?';
+  const FACTS='שכר הבסיס שלי 18,500 ₪ ברוטו, אין לי עמלות ואין בונוס, פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי ויש לי 2 ילדים';
+  const ROLE:Plan={action:'help',filters:{},operations:[{type:'report_occupation',reportedTitle:'מנהל מוצר',candidateKeys:[key('מנהל/ת מוצר')],certainty:'clear',evidence:'מנהל מוצר'}]};
+  const car=(state:AdvisorState)=>state.pendingFacts.find(item=>item.field==='current_vehicle_id')?.value;
+  // What a model may return for the first message: right, only the wanted car, a what-if label, or nothing.
+  const firstPlans:Record<string,Plan>={
+    correct:{action:'net',goal:'net',filters:{},operations:[{type:'report_current_vehicle',hasCar:true,name:'COROLLA CROSS',evidence:'מהקורולה קרוס'},
+      {type:'select_vehicles',vehicleIds:[],names:['ATTO 3'],evidence:'BYD ATTO 3'}]},
+    wantedOnly:{action:'net',goal:'net',filters:{},operations:[{type:'select_vehicles',vehicleIds:[],names:['ATTO 3'],evidence:'BYD ATTO 3'}]},
+    whatIf:{action:'help',intent:'hypothetical',filters:{}},
+    nothing:{action:'net',goal:'net',filters:{}}
+  };
+  it.each(Object.keys(firstPlans))('the whole sequence, state checked after every message (model on the first message: %s)',async plan=>{
+    const person=employee(randomUUID(),{first:'דן',last:'כהן'});const chat=person.conversation();
+    // 1. Today's car and the wanted car, before anything else is known.
+    const first=await chat.turn(FIRST,firstPlans[plan]);
+    expect(first.text).toBe('כדי לבדוק אם ATTO 3 מתאים לך, מה התפקיד שלך בשטראוס?');expect(first.cards).toEqual([]);
+    expect(car(chat.state)).toBe('CAR-09');expect(chat.state.vehicleInterest).toEqual(['CAR-10']);
+    // 2. The role: the wanted car is selected, today's car is still known.
+    const second=await chat.turn('אני מנהל מוצר',ROLE);
+    expect(second.text).toContain('מה שכר הבסיס החודשי שלך ברוטו?');
+    expect(chat.state.selectedVehicleIds).toEqual(['CAR-10']);expect(car(chat.state)).toBe('CAR-09');
+    // 3. All salary details in one message: today's car is not asked again; only the participation is missing.
+    const third=await chat.turn(FACTS,{action:'net',filters:{}});
+    expect(third.text).not.toMatch(/רכב צמוד מהחברה|איזה מהם/u);expect(third.text).toContain('כמה עולה היום ההשתתפות החודשית שלך ברכב?');
+    expect(Object.fromEntries(chat.state.pendingFacts.map(item=>[item.field,item.value]))).toEqual({current_vehicle_id:'CAR-09',base_salary:18500,
+      commissions:0,bonus:0,employee_pension_percent:6,employee_study_fund_percent:2.5,tax_credit_points:2.75,eligible_children_count:2});
+    expect(chat.state.pendingField).toBe('current_participation');expect(chat.state.selectedVehicleIds).toEqual(['CAR-10']);
+    // 4. The participation, the summary, the approval: COROLLA CROSS against ATTO 3.
+    const summary=await chat.turn('300');
+    expect(summary.approval?.rows.find(row=>row.label==='הרכב הצמוד היום')?.value).toBe('COROLLA CROSS');
+    const result=await chat.turn(approve(summary));
+    expect(result.calculation?.baseline).toMatchObject({name:'היום: COROLLA CROSS'});
+    expect(result.calculation?.scenarios.map(item=>item.vehicleId)).toEqual(['CAR-10']);
+    expect(person.versions.map(row=>[row.status,row.current_vehicle_id])).toEqual([['confirmed','CAR-09']]);
+  });
+  // When the question about today's car is on screen, a short answer is enough, whatever a model labelled it.
+  const answerPlans:Record<string,Plan>={conversation:{action:'help',intent:'conversation',filters:{}},
+    clarify:{action:'help',intent:'conversation',conversationAct:'clarify',filters:{}},whatIf:{action:'help',intent:'hypothetical',filters:{}},
+    recall:{action:'help',intent:'profile_recall',recallTopic:'current_vehicle',filters:{}},nothing:{action:'help',filters:{}},
+    readAsWanted:{action:'catalog',filters:{},operations:[{type:'select_vehicles',vehicleIds:[],names:['COROLLA CROSS'],evidence:'קורולה קרוס'}]}};
+  const answers=['קורולה קרוס','יש לי קורולה קרוס','אני נוסע בקורולה קרוס','COROLLA CROSS'];
+  it.each(answers.flatMap(answer=>Object.keys(answerPlans).map(plan=>[answer,plan] as const)))('"%s" answers "which car do you drive today?" (model: %s)',async(answer,plan)=>{
+    const chat=employee(randomUUID(),{first:'דן',last:'כהן'}).conversation();
+    await chat.turn('אני מנהל מוצר ורוצה לבדוק כמה ATTO 3 ישפיע על הנטו',{action:'net',goal:'net',filters:{},operations:[
+      {type:'report_occupation',reportedTitle:'מנהל מוצר',candidateKeys:[key('מנהל/ת מוצר')],certainty:'clear',evidence:'מנהל מוצר'},{type:'select_vehicles',vehicleIds:[],names:['ATTO 3'],evidence:'ATTO 3'}]});
+    const asked=await chat.turn(FACTS,{action:'net',filters:{}});
+    expect(asked.text).toContain('יש לך היום רכב צמוד מהחברה?');expect(chat.state.pendingField).toBe('current_vehicle_id');
+    const reply=await chat.turn(answer,answerPlans[plan]);
+    expect(reply.text).not.toContain('בהמשך למה שבדקנו');expect(reply.cards).toEqual([]);
+    expect(car(chat.state)).toBe('CAR-09');expect(chat.state.pendingField).toBe('current_participation');
+    // Today's car is never added to the cars to compare.
+    expect(chat.state.selectedVehicleIds).toEqual(['CAR-10']);
+  });
+  it.each(['יש לי קורולה קרוס ואני רוצה לעבור ל-ATTO 3, כמה זה ישנה לי בנטו?','אני נוסע בקורולה קרוס, כמה ATTO 3 ישנה לי בנטו?',
+    'במקום הקורולה קרוס אני רוצה ATTO 3, כמה זה ישנה בנטו?'])('"%s": today\'s car and the wanted car in one message',async text=>{
+    const chat=employee(randomUUID(),{first:'דן',last:'כהן'}).conversation();
+    await chat.turn(text,{action:'net',goal:'net',filters:{}});
+    expect(car(chat.state)).toBe('CAR-09');expect(chat.state.vehicleInterest).toEqual(['CAR-10']);
+  });
+  it('a side remark about today\'s car keeps the question on screen and the cars to compare',async()=>{
+    const chat=employee(randomUUID(),{first:'דן',last:'כהן'}).conversation();
+    await chat.turn('אני מנהל מוצר ורוצה לבדוק כמה ATTO 3 ישפיע על הנטו',{action:'net',goal:'net',filters:{},operations:[
+      {type:'report_occupation',reportedTitle:'מנהל מוצר',candidateKeys:[key('מנהל/ת מוצר')],certainty:'clear',evidence:'מנהל מוצר'},{type:'select_vehicles',vehicleIds:[],names:['ATTO 3'],evidence:'ATTO 3'}]});
+    expect(chat.state.pendingField).toBe('base_salary');
+    const reply=await chat.turn('אגב, יש לי היום קורולה קרוס',{action:'help',filters:{}});
+    expect(car(chat.state)).toBe('CAR-09');expect(chat.state.selectedVehicleIds).toEqual(['CAR-10']);
+    expect(reply.text).toContain('מה שכר הבסיס החודשי שלך ברוטו?');expect(reply.cards).toEqual([]);
+  });
+  it('"לעומת" only compares: it never replaces the approved car',async()=>{
+    const person=employee(randomUUID(),{first:'דן',last:'כהן'});
+    person.versions.push({id:randomUUID(),user_id:person.userId,version:1,status:'confirmed',schema_version:'employee-data-v1',created_at:'2026-10-01T00:00:00.000Z',
+      confirmed_at:'2026-10-01T00:00:00.000Z',display_name:'דן כהן',occupation_title:'מנהל/ת מוצר',base_salary:18500,commissions:0,bonus:0,employee_pension_percent:6,
+      employee_study_fund_percent:2.5,tax_credit_points:2.75,eligible_children_count:2,current_vehicle_id:'CAR-05',current_participation:300});
+    const chat=person.conversation();
+    const reply=await chat.turn('כמה ATTO 3 ישנה לי בנטו לעומת COROLLA CROSS?',{action:'net',goal:'net',filters:{}});
+    expect(reply.approval).toBeUndefined();expect(car(chat.state)).toBeUndefined();
+    expect(reply.calculation?.baseline.name).toBe('היום: NIRO');expect(person.versions).toHaveLength(1);
+  });
+  it('reads today\'s car and the wanted car from the Hebrew words around them',async()=>{
+    const {vehicleDirection}=await import('../src/lib/ai/vehicle-identification');
+    const rows=catalog.map(advisorRow);
+    const sides=(text:string)=>{const found=vehicleDirection(text,rows);return [found.from.map(item=>item.row.id+(item.compared?'~':'')),found.to.map(item=>item.row.id)];};
+    expect(sides(FIRST)).toEqual([['CAR-09'],['CAR-10']]);
+    expect(sides('אני נוסע בקורולה קרוס')).toEqual([['CAR-09'],[]]);
+    expect(sides('מהקורולה קרוס')).toEqual([['CAR-09'],[]]);
+    expect(sides('ATTO 3 לעומת COROLLA CROSS')).toEqual([['CAR-09~'],[]]);
+  });
+});
+
+describe('a profile update in one message, then a comparison with a named car (real local run, 27.10)',()=>{
+  const key=(title:string)=>occupations.find(row=>row.title===title)!.key;
+  const UPDATE='אני מנהלת מוצר, מרוויחה 21,000 ברוטו, אין לי עמלות, יש בונוס של 1,500, פנסיה 6%, קרן השתלמות 2.5%, 2.75 נקודות זיכוי ו־3 ילדים. יש לי היום קורולה קרוס ואני משלמת עליה 350 שקל בחודש.';
+  const COMPARE='אני רוצה להשוות ל־BYD ATTO 3.';
+  const role={type:'report_occupation',reportedTitle:'מנהלת מוצר',candidateKeys:[key('מנהל/ת מוצר')],certainty:'clear',evidence:'מנהלת מוצר'};
+  const facts=[role,fact('base_salary',21000,'מרוויחה 21,000 ברוטו'),fact('commissions',0,'אין לי עמלות'),fact('bonus',1500,'בונוס של 1,500'),
+    fact('employee_pension_percent',6,'פנסיה 6%'),fact('employee_study_fund_percent',2.5,'קרן השתלמות 2.5%'),fact('tax_credit_points',2.75,'2.75 נקודות זיכוי'),
+    fact('eligible_children_count',3,'3 ילדים'),{type:'report_current_vehicle',hasCar:true,name:'COROLLA CROSS',evidence:'יש לי היום קורולה קרוס'}];
+  // What a model may return for the update: everything, everything but the participation, a catalog label, or nothing.
+  const updatePlans:Record<string,Plan>={
+    everything:{action:'net',goal:'net',filters:{},operations:[...facts,fact('current_participation',350,'משלמת עליה 350 שקל בחודש')]},
+    noParticipation:{action:'net',goal:'net',filters:{},operations:facts},
+    catalogLabel:{action:'catalog',filters:{name:'COROLLA CROSS'},operations:facts},
+    nothing:{action:'help',filters:{}}
+  };
+  // ...and for the comparison: "another car" (alternatives), a side conversation, or the choice itself.
+  const comparePlans:Record<string,Plan>={
+    alternatives:{action:'help',intent:'resume',conversationAct:'alternatives',filters:{}},
+    conversation:{action:'help',intent:'conversation',filters:{}},
+    choice:{action:'net',goal:'net',filters:{},operations:[{type:'select_vehicles',vehicleIds:[],names:['ATTO 3'],evidence:'BYD ATTO 3'}]}
+  };
+  function approved() {
+    const person=employee(randomUUID(),{first:'נועה',last:'לוי'});
+    person.versions.push({id:randomUUID(),user_id:person.userId,version:1,status:'confirmed',schema_version:'employee-data-v1',created_at:'2026-10-01T00:00:00.000Z',
+      confirmed_at:'2026-10-01T00:00:00.000Z',display_name:'נועה לוי',occupation_title:'מנהל/ת מוצר',base_salary:18500,commissions:0,bonus:0,employee_pension_percent:6,
+      employee_study_fund_percent:2.5,tax_credit_points:2.75,eligible_children_count:2,current_vehicle_id:'CAR-09',current_participation:300});
+    return person;
+  }
+  const row=(reply:CatalogMessage,label:string)=>{const item=reply.approval?.rows.find(entry=>entry.label===label);return item&&[item.value,item.status];};
+  const latest=(person:ReturnType<typeof employee>)=>[...person.versions].filter(item=>item.status==='confirmed').sort((a,b)=>b.version-a.version)[0];
+  const cases=Object.keys(updatePlans).flatMap(update=>Object.keys(comparePlans).map(compare=>[update,compare] as const));
+  it.each(cases)('update → new summary → approval → comparison with ATTO 3, state and profile checked at every step (model: %s / %s)',async(update,compare)=>{
+    const person=approved();const chat=person.conversation();
+    // 1. The update: every value written, as a new summary to approve. No car list; nothing saved yet.
+    const summary=await chat.turn(UPDATE,updatePlans[update]);
+    expect(summary.cards).toEqual([]);expect(summary.calculation).toBeUndefined();expect(summary.text).not.toContain('מצאתי');
+    expect(row(summary,'שכר בסיס חודשי ברוטו')).toEqual(['21,000 ₪','changed']);expect(row(summary,'בונוס חודשי')).toEqual(['1,500 ₪','changed']);
+    expect(row(summary,'ילדים עד גיל 23')).toEqual(['3','changed']);expect(row(summary,'השתתפות חודשית ברכב היום')).toEqual(['350 ₪','changed']);
+    expect(row(summary,'הרכב הצמוד היום')).toEqual(['COROLLA CROSS','confirmed']);expect(row(summary,'נקודות זיכוי')).toEqual(['2.75','confirmed']);
+    expect(chat.state.pendingApproval).toBeDefined();expect(chat.state.shownVehicles??[]).toEqual([]);expect(chat.state.preferences).toEqual({});
+    expect(person.versions).toHaveLength(1);expect(latest(person)).toMatchObject({version:1,base_salary:18500,current_participation:300});
+    // 2. A salary what-if before approving changes nothing: the approved profile stays, the draft waits.
+    const simulated=await chat.turn('ואם הייתי מקבלת 30000 ברוטו?',{action:'help',intent:'hypothetical',filters:{}});
+    expect(simulated.text).toContain('לאשר את הפרטים');expect(person.versions).toHaveLength(1);
+    // 3. Approval: a new version with exactly the update; the next step asks for a car (no list of first cars).
+    const saved=await chat.turn(approve(summary));
+    expect(latest(person)).toMatchObject({version:2,base_salary:21000,commissions:0,bonus:1500,eligible_children_count:3,tax_credit_points:2.75,
+      current_vehicle_id:'CAR-09',current_participation:350});
+    expect(person.versions.find(item=>item.version===1)).toMatchObject({base_salary:18500,current_participation:300}); // History kept.
+    expect(saved.text).toContain('לאיזה רכב להשוות?');expect(saved.cards).toEqual([]);expect(chat.state.pendingQuestion).toBe('vehicle_selection');
+    // 4. "Compare with ATTO 3": the named car is the choice, calculated at once against today's car.
+    const runs=person.runs.length;
+    const result=await chat.turn(COMPARE,comparePlans[compare]);
+    expect(result.text).not.toContain('לאיזה רכב או סוג הנעה');expect(result.purpose).toBeUndefined();
+    expect(chat.state.selectedVehicleIds).toEqual(['CAR-10']);
+    expect(result.calculation?.profileVersion).toBe(2);expect(result.calculation?.baseline.name).toBe('היום: COROLLA CROSS');
+    expect(result.calculation?.scenarios.map(item=>item.vehicleId)).toEqual(['CAR-10']);expect(person.runs).toHaveLength(runs+1);
+  });
+  it('ATTO 3 is chosen by name even when it is not among the buttons of the first cars shown',async()=>{
+    const person=approved();const chat=person.conversation();
+    const listed=await chat.turn('אילו רכבים מגיעים לי?',{action:'catalog',filters:{}});
+    expect(listed.cards.length).toBeGreaterThan(6);
+    const which=await chat.turn('כמה זה ישפיע על הנטו?',{action:'net',goal:'net',filters:{}});
+    expect(which.text).toContain('או לכתוב שם של דגם אחר מהקטלוג');
+    expect(which.actions?.map(action=>action.label)).not.toContain('ATTO 3');
+    const result=await chat.turn(COMPARE,comparePlans.alternatives);
+    expect(result.calculation?.scenarios.map(item=>item.vehicleId)).toEqual(['CAR-10']);
+  });
+  it('two different values for one field in one message are asked about, never one of them guessed',async()=>{
+    const person=approved();const chat=person.conversation();
+    const asked=await chat.turn('ההשתתפות שלי 300, ואני משלמת עליה 350 שקל בחודש, והשכר שלי 21,000',{action:'net',filters:{},operations:[
+      fact('current_participation',300,'ההשתתפות שלי 300'),fact('base_salary',21000,'השכר שלי 21,000')]});
+    expect(asked.text).toBe('כתבת שני ערכים שונים להשתתפות ברכב: 300 ₪ ו־350 ₪. מה הערך הנכון?');
+    expect(asked.approval).toBeUndefined();expect(chat.state.pendingFacts.some(item=>item.field==='current_participation')).toBe(false);
+    expect(chat.state.pendingField).toBe('current_participation');
+    const summary=await chat.turn('350');
+    expect(row(summary,'השתתפות חודשית ברכב היום')).toEqual(['350 ₪','changed']);expect(row(summary,'שכר בסיס חודשי ברוטו')).toEqual(['21,000 ₪','changed']);
+    expect(person.versions).toHaveLength(1);
+  });
+  it.each([
+    ['ואני משלמת עליה 350 שקל בחודש',{current_participation:350}],['הרכב עולה לי 350 בחודש',{current_participation:350}],
+    ['משלמים לי 21,000 ברוטו',{base_salary:21000}],['ההשתתפות החודשית שלי ברכב היא 280 ₪',{current_participation:280}]
+  ] as Array<[string,Record<string,number>]>)('"%s"',async(text,expected)=>{
+    const {extractFieldValues}=await import('../src/lib/ai/financial-flow');
+    expect(Object.fromEntries(extractFieldValues(text).map(item=>[item.field,item.value]))).toEqual(expected);
+  });
+});
+
+describe('manual QA round (27.10): the whole request is understood, the last calculation is never a default',()=>{
+  const REP=randomUUID();
+  const role=occupations.find(row=>row.title==='מנהל/ת מוצר')!;
+  const atto=catalog.find(car=>car['מזהה']==='CAR-10')!;
+  const corollaCross=catalog.find(car=>car['מזהה']==='CAR-09')!;
+  /** An approved profile (version 1) and a conversation where ATTO 3 was already compared with today's COROLLA CROSS. */
+  async function compared(extra:Partial<EmployeeDataVersionRow>={}) {
+    const person=employee(randomUUID(),{first:'נועה',last:'לוי'});
+    person.versions.push({id:randomUUID(),user_id:person.userId,version:1,status:'confirmed',schema_version:'employee-data-v1',created_at:'2026-10-01T00:00:00.000Z',
+      confirmed_at:'2026-10-01T00:00:00.000Z',display_name:'נועה לוי',occupation_title:'מנהל/ת מוצר',base_salary:21000,commissions:0,bonus:1500,employee_pension_percent:6,
+      employee_study_fund_percent:2.5,tax_credit_points:2.75,eligible_children_count:3,current_vehicle_id:'CAR-09',current_participation:350,...extra});
+    const chat=person.conversation();
+    const first=await chat.turn('כמה ATTO 3 ישנה לי בנטו לעומת הקורולה קרוס?',{action:'net',goal:'net',filters:{},operations:[{type:'select_vehicles',vehicleIds:[],names:['ATTO 3'],evidence:'ATTO 3'}]});
+    expect(first.calculation?.baseline.name).toBe('היום: COROLLA CROSS');expect(first.calculation?.scenarios.map(row=>row.vehicleId)).toEqual(['CAR-10']);
+    return {person,chat,runs:person.runs.length};
+  }
+  const latest=(person:ReturnType<typeof employee>)=>[...person.versions].filter(row=>row.status==='confirmed').sort((a,b)=>b.version-a.version)[0];
+  const changedRows=(reply:CatalogMessage)=>reply.approval?.rows.filter(row=>row.status!=='confirmed').map(row=>[row.label,row.value]);
+  const net=(profile:EmployeeDataVersionRow,car:Car,salary=Number(profile.base_salary))=>
+    displayShekels(calculateNet(toCalculatorEmployee({...profile,base_salary:salary},role),{type:'car',car},rules,toCalculatorOccupation(role)).net);
+  const shekel=(value:number)=>`${value.toLocaleString('he-IL')} ₪`;
+
+  // BUG-01: "from X to Y" is a change, not two competing values; everything else stays.
+  it.each([
+    'אני רוצה לתקן את השכר שלי מ־21,000 ל־23,000 ברוטו. כל שאר הפרטים נשארים בדיוק כמו שהם, כולל ההשתתפות של 350 שקל ברכב.',
+    'תעדכן את השכר שלי במקום 21,000 ל־23,000',
+    'השכר שלי כבר לא 21,000 אלא 23,000',
+    'טעיתי, השכר הנכון הוא 23,000'
+  ])('"%s" → one change to approve, saved only after approval, used next',async text=>{
+    const {person,chat}=await compared();
+    // The model may misread the old value as the new one: the employee's words decide.
+    const summary=await chat.turn(text,text.includes('21,000')?{action:'net',filters:{},operations:[fact('base_salary',21000,'21,000')]}:{action:'net',filters:{}});
+    expect(changedRows(summary)).toEqual([['שכר בסיס חודשי ברוטו','23,000 ₪']]);expect(summary.text).not.toContain('שני ערכים');
+    expect(person.versions).toHaveLength(1);
+    await chat.turn(approve(summary));
+    expect(latest(person)).toMatchObject({version:2,base_salary:23000,bonus:1500,eligible_children_count:3,current_participation:350,current_vehicle_id:'CAR-09'});
+    const again=await chat.turn('וכמה ATTO 3 ישנה לי בנטו עכשיו?',{action:'net',goal:'net',filters:{}});
+    expect(again.calculation?.profileVersion).toBe(2);
+  });
+
+  // BUG-02/03: a salary what-if uses the amount given, with the real calculator, and changes nothing.
+  it.each([
+    ['מה אם השכר שלי היה 26,000 שקל במקום 23,000? כמה נטו הייתי מקבלת עם ה־ATTO 3? אני רק בודקת תרחיש, אל תשנה את הפרופיל שלי.',{action:'net',intent:'hypothetical',filters:{}}],
+    ['ואם הייתי מקבלת 26,000 ברוטו, כמה נטו עם ATTO 3?',{action:'net',goal:'net',filters:{},operations:[fact('base_salary',26000,'26,000 ברוטו')]}]
+  ] as Array<[string,Plan]>)('"%s" → the net with ATTO 3 at 26,000, nothing saved',async(text,plan)=>{
+    const {person,chat,runs}=await compared({base_salary:23000});
+    const reply=await chat.turn(text,plan);
+    const approved=person.versions[0];
+    expect(reply.text).toContain(`ATTO 3: נטו של כ־${shekel(net(approved,atto,26000))} בחודש, לעומת ${shekel(net(approved,atto))} עם השכר המאושר`);
+    expect(reply.text).not.toMatch(/היפותטי|איזה שכר/u);
+    expect(person.versions).toHaveLength(1);expect(person.runs).toHaveLength(runs);expect(chat.state.pendingFacts).toEqual([]);
+    expect(person.financial.createVersion).not.toHaveBeenCalled();
+  });
+  it('when the amount is missing it is asked once, and the amount alone then completes the check',async()=>{
+    const {person,chat}=await compared({base_salary:23000});
+    const asked=await chat.turn('מה אם השכר שלי היה אחר? כמה נטו הייתי מקבלת?',{action:'help',intent:'hypothetical',filters:{}});
+    expect(asked.text.startsWith('בשמחה. איזה שכר בסיס חודשי ברוטו לבדוק?')).toBe(true);
+    const answered=await chat.turn('26,000',{action:'help',filters:{}});
+    expect(answered.text).toContain(`נטו של כ־${shekel(net(person.versions[0],atto,26000))}`);expect(chat.state.pendingFacts).toEqual([]);
+  });
+
+  // BUG-12: an uncertain future salary and "keep my profile": the approved salary, the named car, a real calculation.
+  it.each([
+    {action:'net',goal:'net',filters:{driveType:'חשמלי'}},
+    {action:'net',goal:'net',filters:{},operations:[fact('base_salary',25000,'יעלה ל־25,000 שקל')]},
+    {action:'help',intent:'hypothetical',filters:{}}
+  ] as Plan[])('future salary in passing, approved salary asked (model %#)',async plan=>{
+    const {person,chat,runs}=await compared({base_salary:23000,eligible_children_count:4});
+    const reply=await chat.turn('אני שוקלת לעבור לרכב חשמלי, אבל אין לי אפשרות לטעינה בבית. אגב, אולי השכר שלי יעלה ל־25,000 שקל בחודש הבא, אבל זה עדיין לא סופי. בינתיים תשאיר את הפרופיל שלי כמו שהוא. כמה נטו אקבל עם ה־ATTO 3 לפי השכר המאושר שלי?',plan);
+    expect(reply.calculation?.scenarios.map(row=>[row.vehicleId,row.net])).toEqual([['CAR-10',net(person.versions[0],atto)]]);
+    expect(reply.calculation?.profileVersion).toBe(1);expect(reply.cards).toEqual([]);expect(reply.text).not.toMatch(/לאיזה רכב|היפותטי|מצאתי/u);
+    expect(chat.state.pendingFacts).toEqual([]);expect(reply.approval).toBeUndefined();expect(person.versions).toHaveLength(1);expect(person.runs.length).toBeGreaterThanOrEqual(runs);
+  });
+
+  // BUG-04: both concepts and the difference; no catalog, no calculation.
+  it.each([{action:'value_of_use',filters:{}},{action:'help',intent:'conversation',conversationAct:'explain',filters:{}},{action:'catalog',filters:{}}] as Plan[])(
+    'value of use vs. participation is explained in full (model %#)',async plan=>{
+    const {chat}=await compared();
+    const reply=await chat.turn('מה ההבדל בין שווי שימוש לבין ההשתתפות החודשית שאני משלמת על הרכב?',plan);
+    expect(reply.text).toContain('שווי שימוש הוא');expect(reply.text).toContain('השתתפות חודשית היא');expect(reply.text).toContain('ההבדל בפועל');
+    expect(reply.text).toContain('ההשתתפות היום היא 350 ₪');
+    expect(reply.text).not.toMatch(/קטלוג\?|ATTO 3/u);expect(reply.cards).toEqual([]);expect(reply.calculation).toBeUndefined();
+  });
+
+  // BUG-05 / BUG-06: a car outside the catalog, or not eligible: said plainly, never the earlier ATTO 3 again.
+  it.each([
+    ['ומה אם במקום ATTO 3 ארצה טסלה מודל Y שנת 2024? כמה זה ישנה לי בנטו לעומת הקורולה קרוס?','טסלה מודל Y לא נמצא בקטלוג'],
+    ['ואם במקום ATTO 3 אני רוצה Tesla MODEL 3?','MODEL 3 לא זמין לתפקיד שלך'],
+    ['אני רוצה לבדוק את Tesla MODEL 3','MODEL 3 לא זמין לתפקיד שלך']
+  ])('"%s"',async(text,expected)=>{
+    const {person,chat,runs}=await compared();
+    for (const plan of [{action:'net',goal:'net',filters:{}},{action:'net',goal:'net',filters:{},operations:[{type:'select_vehicles',vehicleIds:[],names:['MODEL 3'],evidence:text.includes('Tesla')?'Tesla MODEL 3':'טסלה מודל Y'}]}] as Plan[]) {
+      const reply=await chat.turn(text,plan);
+      expect(reply.text).toContain(expected);expect(reply.text).not.toContain('בחרת ב־ATTO 3');
+      expect(reply.calculation).toBeUndefined();expect(person.runs).toHaveLength(runs);
+      // Nothing about today's car or the earlier choice changed.
+      expect(chat.state.pendingFacts).toEqual([]);expect(chat.state.selectedVehicleIds).toEqual(['CAR-10']);
+    }
+  });
+
+  // BUG-07 / BUG-08: children update, then eligibility — answered from the rules, not with a calculation.
+  it('BUG-07: the update is approved, and its eligibility question is answered after saving',async()=>{
+    const {person,chat,runs}=await compared();
+    const summary=await chat.turn('אני רוצה לעדכן שיש לי 4 ילדים עד גיל 23 במקום 3. כל שאר פרטי הפרופיל נשארים כמו שהם. האם זה משנה את הזכאות שלי לרכבים?',
+      {action:'net',filters:{},operations:[fact('eligible_children_count',4,'4 ילדים עד גיל 23')]});
+    expect(changedRows(summary)).toEqual([['ילדים עד גיל 23','4']]);
+    const saved=await chat.turn(approve(summary));
+    expect(latest(person)).toMatchObject({version:2,eligible_children_count:4,base_salary:21000});
+    expect(saved.text).toContain('שמרתי את הפרטים ✓');expect(saved.text).toContain('מקבוצה ג ומטה');
+    expect(saved.text).toContain(`יש לך זכאות גם למסלול המשפחתי, שדורש לפחות ${rules.familyTrack.minChildren} ילדים`);
+    expect(saved.text).toContain('העדכון מ־3 ל־4 ילדים הוא שפתח לך את המסלול המשפחתי');
+    expect(saved.cards.map(card=>card.id).sort()).toEqual([...rules.familyTrack.cars].sort());
+    expect(saved.calculation).toBeUndefined();expect(person.runs).toHaveLength(runs);
+  });
+  const FAMILY_QUESTION='עכשיו כשיש לי 4 ילדים עד גיל 23, האם אני זכאית למסלול המשפחתי? אילו רכבים נוספים נפתחו לי בעקבות השינוי?';
+  const familyPlans=[{action:'help',intent:'resume',conversationAct:'alternatives',filters:{}},{action:'family',filters:{}},{action:'net',goal:'net',filters:{}}] as Plan[];
+  it.each(familyPlans.map((plan,index)=>[index,plan] as const))('BUG-08: the family-track question, 4 approved children: eligible, with its cars (model %s)',async(_index,plan)=>{
+    const {person,chat,runs}=await compared({eligible_children_count:4});
+    const reply=await chat.turn(FAMILY_QUESTION,plan);
+    expect(reply.text).not.toContain('עם איזה רכב להשוות');expect(reply.calculation).toBeUndefined();expect(person.runs).toHaveLength(runs);
+    expect(reply.text).toContain('יש לך זכאות גם למסלול המשפחתי');expect(reply.cards.map(card=>card.id).sort()).toEqual([...rules.familyTrack.cars].sort());
+    expect(person.versions).toHaveLength(1);expect(reply.approval).toBeUndefined();
+  });
+  it.each(familyPlans.map((plan,index)=>[index,plan] as const))('BUG-08: 3 approved children and "4" in the message: an update to approve first, then the answer (model %s)',async(_index,plan)=>{
+    const {person,chat,runs}=await compared({eligible_children_count:3});
+    const summary=await chat.turn(FAMILY_QUESTION,plan);
+    expect(changedRows(summary)).toEqual([['ילדים עד גיל 23','4']]);expect(summary.cards).toEqual([]);expect(summary.calculation).toBeUndefined();
+    const saved=await chat.turn(approve(summary));
+    expect(latest(person)).toMatchObject({version:2,eligible_children_count:4});
+    expect(saved.text).toContain('העדכון מ־3 ל־4 ילדים הוא שפתח לך את המסלול המשפחתי');expect(saved.calculation).toBeUndefined();
+    expect(person.runs).toHaveLength(runs);
+  });
+  it('the family track stays closed below the official minimum',async()=>{
+    const {chat}=await compared({eligible_children_count:3});
+    const reply=await chat.turn('האם אני זכאית למסלול המשפחתי?',{action:'family',filters:{}});
+    expect(reply.text).toContain(`המסלול המשפחתי דורש לפחות ${rules.familyTrack.minChildren} ילדים עד גיל 23, ובפרופיל המאושר רשומים 3`);
+    expect(reply.cards).toEqual([]);expect(reply.calculation).toBeUndefined();
+  });
+
+  // BUG-09 / BUG-10: the representative's answer, the same as or different from the profile, and questions about it.
+  async function answered(value:number) {
+    const ctx=await compared();
+    const offer=await ctx.chat.turn('אני רוצה לפתוח פנייה לנציג לבדוק אם ההשתתפות החודשית היא 350 או 450 ₪, בלי לשנות את הפרופיל');
+    await ctx.chat.turn(offer.actions!.find(action=>action.body.includes('#R'))!.body);
+    ctx.person.claim(ctx.person.requests[0].id,REP);
+    const answer=ctx.chat.representativeSays(JSON.stringify({kind:'carwise.rep-answer.v1',requestId:ctx.person.requests[0].id,field:'current_participation',value,answeredAt:new Date().toISOString()}),REP);
+    return {...ctx,answer};
+  }
+  const STATUS='מה הנציג ענה לי לגבי ההשתתפות החודשית ברכב? האם הסכום בפרופיל שלי כבר נכון, או שאני צריכה לאשר משהו נוסף?';
+  it('BUG-09: the same value as the profile changes nothing, needs no approval and runs no calculation',async()=>{
+    const {person,chat,answer,runs}=await answered(350);
+    const used=await chat.turn(`שימוש בתשובת הנציג #Q${answer.id.slice(0,8).toUpperCase()}`);
+    expect(used.text).toContain('זה בדיוק הערך שכבר שמור בפרופיל המאושר שלך');expect(used.approval).toBeUndefined();expect(used.calculation).toBeUndefined();
+    expect(chat.state.pendingFacts).toEqual([]);expect(person.versions).toHaveLength(1);expect(person.runs).toHaveLength(runs);
+    const status=await chat.turn(STATUS,{action:'help',filters:{}});
+    expect(status.text).toContain('הנציג השיב לגבי השתתפות חודשית ברכב היום: 350 ₪');expect(status.text).toContain('אין מה לעדכן או לאשר');
+    expect(person.requests).toHaveLength(1);
+  });
+  it('BUG-09: a different value is shown for approval and saved only after it; later calculations use it',async()=>{
+    const {person,chat,answer}=await answered(450);
+    const before=await chat.turn(STATUS,{action:'help',intent:'profile_recall',recallTopic:'current_vehicle',filters:{}});
+    expect(before.text).toContain('450 ₪');expect(before.text).toContain('בפרופיל המאושר רשום כרגע 350 ₪');expect(before.actions?.[0].label).toBe('להשתמש בערך הזה');
+    const summary=await chat.turn(`שימוש בתשובת הנציג #Q${answer.id.slice(0,8).toUpperCase()}`);
+    expect(changedRows(summary)).toEqual([['השתתפות חודשית ברכב היום','450 ₪']]);expect(person.versions).toHaveLength(1);
+    const waiting=await chat.turn(STATUS,{action:'help',filters:{}});
+    expect(waiting.text).toContain('ממתין לאישור שלך בסיכום הפרטים');expect(waiting.actions?.[0].body).toBe(approve(summary));
+    const result=await chat.turn(approve(summary));
+    expect(latest(person)).toMatchObject({version:2,current_participation:450,base_salary:21000});
+    expect(result.calculation?.profileVersion).toBe(2);expect(person.requests).toHaveLength(1);
+  });
+  it('BUG-10: with no request in the conversation nothing is invented, and no request is opened',async()=>{
+    const {person,chat}=await compared();
+    const reply=await chat.turn(STATUS,{action:'unknown_group',filters:{},operations:[{type:'request_representative',evidence:'הנציג'}]});
+    expect(reply.text).toContain('לא מצאתי בשיחה הזו פנייה לנציג');expect(reply.actions).toBeUndefined();expect(person.requests).toHaveLength(0);
+  });
+  it('an answer to another employee\'s request is never shown',async()=>{
+    const {person,chat}=await compared();
+    const foreign:RepresentativeRequestRow={id:randomUUID(),conversation_id:chat.id,owner_user_id:randomUUID(),status:'answered',topic:'שדה חסר: השתתפות חודשית ברכב היום [current_participation]',
+      assigned_representative_id:REP,requested_at:new Date().toISOString(),claimed_at:null,answered_at:null,closed_at:null,created_at:new Date().toISOString(),updated_at:new Date().toISOString()};
+    person.requests.push(foreign);
+    chat.representativeSays(JSON.stringify({kind:'carwise.rep-answer.v1',requestId:foreign.id,field:'current_participation',value:999,answeredAt:new Date().toISOString()}),REP);
+    const reply=await chat.turn(STATUS,{action:'help',filters:{}});
+    expect(reply.text).not.toContain('999');expect(reply.text).toContain('לא הצלחתי לאמת');
+  });
+
+  // BUG-11: every part of a multi-part question, and CarWise Match for "the best car overall".
+  it('BUG-11: salary, children and today\'s car from the approved profile, and a pointer to CarWise Match (new conversation)',async()=>{
+    const {person}=await compared({base_salary:23000,eligible_children_count:4});
+    for (const plan of [{action:'help',intent:'profile_recall',recallTopic:'current_vehicle',filters:{}},{action:'net',goal:'recommendation',filters:{}}] as Plan[]) {
+      const fresh=person.conversation();
+      const reply=await fresh.turn('היי, אני רוצה לבדוק איזה רכב הכי משתלם לי מבחינת הנטו לפי הפרופיל שכבר אישרתי. אתה יודע מה השכר שלי, כמה ילדים יש לי ואיזה רכב יש לי היום?',plan);
+      expect(reply.text).toContain('שכר בסיס חודשי ברוטו: 23,000 ₪');expect(reply.text).toContain('ילדים עד גיל 23: 4');expect(reply.text).toContain('הרכב הנוכחי: COROLLA CROSS');
+      expect(reply.text).toContain('CarWise Match');expect(reply.cards).toEqual([]);expect(reply.calculation).toBeUndefined();
+    }
+  });
+  it('a request for the best car overall goes to CarWise Match; two named cars are compared here',async()=>{
+    const {chat}=await compared();
+    const overall=await chat.turn('איזה רכב הכי משתלם לי מכל הרכבים?',{action:'catalog',goal:'recommendation',filters:{}});
+    expect(overall.text).toContain('CarWise Match');expect(overall.cards).toEqual([]);expect(overall.calculation).toBeUndefined();
+    const two=await chat.turn('תשווה לי בין ATTO 3 ל־MG4 בנטו',{action:'net',goal:'net',filters:{},operations:[{type:'select_vehicles',vehicleIds:[],names:['ATTO 3','MG4'],evidence:'ATTO 3 ל־MG4'}]});
+    expect(two.calculation?.scenarios.map(row=>row.vehicleId)).toEqual(['CAR-10','CAR-06']);
+  });
+
+  // The last calculation is not a default answer; a new conversation keeps the approved profile only.
+  it('an unrelated message after a calculation does not show it again',async()=>{
+    const {person,chat,runs}=await compared();
+    for (const [text,plan] of [['אוקיי, הבנתי',{action:'net',goal:'net',filters:{}}],['רגע, משהו אחר',{action:'net',filters:{}}]] as Array<[string,Plan]>) {
+      const reply=await chat.turn(text,plan);
+      expect(reply.calculation).toBeUndefined();expect(reply.text).not.toContain('הנה החישוב');
+    }
+    expect(person.runs).toHaveLength(runs);
+    const asked=await chat.turn('כמה ATTO 3 ישנה לי בנטו?',{action:'net',goal:'net',filters:{}});
+    expect(asked.calculation?.scenarios.map(row=>row.vehicleId)).toEqual(['CAR-10']);
+  });
+  it('a new conversation works from the latest approved version, without the previous conversation\'s pending values',async()=>{
+    const {person,chat}=await compared();
+    const summary=await chat.turn('השכר שלי כבר לא 21,000 אלא 23,000',{action:'net',filters:{}});
+    await chat.turn(approve(summary));
+    await chat.turn('ויש לי 5 ילדים',{action:'net',filters:{},operations:[fact('eligible_children_count',5,'5 ילדים')]}); // Pending only, never approved.
+    const fresh=person.conversation();
+    const reply=await fresh.turn('כמה ATTO 3 ישנה לי בנטו?',{action:'net',goal:'net',filters:{},operations:[{type:'select_vehicles',vehicleIds:[],names:['ATTO 3'],evidence:'ATTO 3'}]});
+    expect(reply.calculation?.profileVersion).toBe(2);expect(reply.approval).toBeUndefined();
+    expect(reply.calculation?.scenarios[0].net).toBe(net(latest(person),atto));expect(latest(person).eligible_children_count).toBe(3);
+    void corollaCross;
+  });
+  it('"don\'t change my profile" keeps every value out of the profile',async()=>{
+    const {person,chat}=await compared();
+    const reply=await chat.turn('אני מרוויחה עכשיו 25,000 ברוטו אבל אל תשנה את הפרופיל, רק תגיד לי כמה נטו יש לי עם ATTO 3',
+      {action:'net',goal:'net',filters:{},operations:[fact('base_salary',25000,'מרוויחה עכשיו 25,000 ברוטו')]});
+    expect(chat.state.pendingFacts).toEqual([]);expect(reply.approval).toBeUndefined();expect(person.versions).toHaveLength(1);
+    expect(reply.calculation?.scenarios.map(row=>[row.vehicleId,row.net])).toEqual([['CAR-10',net(person.versions[0],atto)]]);
+  });
+});
+
+describe('manual QA round: the same intentions in other words',()=>{
+  const REP=randomUUID();
+  async function approvedChat(extra:Partial<EmployeeDataVersionRow>={}) {
+    const person=employee(randomUUID(),{first:'דנה',last:'לוי'});
+    person.versions.push({id:randomUUID(),user_id:person.userId,version:1,status:'confirmed',schema_version:'employee-data-v1',created_at:'2026-10-01T00:00:00.000Z',
+      confirmed_at:'2026-10-01T00:00:00.000Z',display_name:'דנה לוי',occupation_title:'מנהל/ת מוצר',base_salary:23000,commissions:0,bonus:0,employee_pension_percent:6,
+      employee_study_fund_percent:2.5,tax_credit_points:2.75,eligible_children_count:2,current_vehicle_id:'CAR-09',current_participation:350,...extra});
+    const chat=person.conversation();
+    await chat.turn('כמה ATTO 3 ישנה לי בנטו?',{action:'net',goal:'net',filters:{},operations:[{type:'select_vehicles',vehicleIds:[],names:['ATTO 3'],evidence:'ATTO 3'}]});
+    return {person,chat,runs:person.runs.length};
+  }
+  it.each([
+    'השכר שלי צפוי לעלות ל־25,000 בשנה הבאה, אבל תחשב לפי השכר הנוכחי: כמה נטו עם ATTO 3?',
+    'אולי אקבל העלאה ל־25,000, זה עוד לא סופי. בינתיים כמה נטו יש לי עם ATTO 3 לפי השכר המאושר?'
+  ])('a raise mentioned as uncertain is never saved or simulated: "%s"',async text=>{
+    const {person,chat}=await approvedChat();
+    const reply=await chat.turn(text,{action:'net',goal:'net',filters:{},operations:[fact('base_salary',25000,'25,000')]});
+    expect(chat.state.pendingFacts).toEqual([]);expect(reply.approval).toBeUndefined();expect(reply.text).not.toContain('בדקתי לפי שכר');
+    expect(reply.calculation?.profileVersion).toBe(1);expect(person.versions).toHaveLength(1);
+  });
+  it.each(['הגיעה כבר תשובה מהנציג?','מה הנציגה השיבה לי?','תשובת הנציג כבר נכנסה לפרופיל?'])('"%s" asks about the existing request',async text=>{
+    const {person,chat}=await approvedChat();
+    const offer=await chat.turn('אני רוצה לדבר עם נציג על ההשתתפות החודשית');
+    await chat.turn(offer.actions!.find(action=>action.body.includes('#R'))!.body);
+    expect(person.requests).toHaveLength(1);
+    const waiting=await chat.turn(text,{action:'unknown_group',filters:{},operations:[{type:'request_representative',evidence:'נציג'}]});
+    expect(waiting.text).toContain('ותשובה עוד לא הגיעה');expect(person.requests).toHaveLength(1);
+    person.claim(person.requests[0].id,REP);
+    chat.representativeSays(JSON.stringify({kind:'carwise.rep-answer.v1',requestId:person.requests[0].id,field:'current_participation',value:350,answeredAt:new Date().toISOString()}),REP);
+    const answered=await chat.turn(text,{action:'help',filters:{}});
+    expect(answered.text).toContain('350 ₪');expect(answered.text).toContain('אין מה לעדכן או לאשר');expect(person.requests).toHaveLength(1);
+  });
+  it.each([
+    ['תזכיר לי מה השכר שלי ומה ההשתתפות שלי ברכב?',['שכר בסיס חודשי ברוטו: 23,000 ₪','השתתפות חודשית ברכב: 350 ₪']],
+    ['אתה זוכר כמה נקודות זיכוי יש לי וכמה ילדים?',['נקודות זיכוי: 2.75','ילדים עד גיל 23: 2']]
+  ] as Array<[string,string[]]>)('"%s" answers every part',async(text,parts)=>{
+    const {chat}=await approvedChat();
+    const reply=await chat.turn(text,{action:'help',intent:'profile_recall',recallTopic:'financial',filters:{}});
+    for (const part of parts) expect(reply.text).toContain(part);
+    expect(reply.calculation).toBeUndefined();
+  });
+  it.each(['מה זה ההשתתפות החודשית ואיך היא משפיעה על הנטו?','תסביר לי מה ההבדל בין השתתפות לבין שווי השימוש'])('"%s" is explained, not calculated',async text=>{
+    const {person,chat,runs}=await approvedChat();
+    const reply=await chat.turn(text,{action:'net',goal:'net',filters:{}});
+    expect(reply.text).toContain('השתתפות חודשית היא');expect(reply.calculation).toBeUndefined();expect(person.runs).toHaveLength(runs);
+  });
+  it('value roles: the replaced value and future values are never read as new values',async()=>{
+    const {extractFieldValues,newAmountsIn}=await import('../src/lib/ai/financial-flow');
+    const read=(text:string)=>Object.fromEntries(extractFieldValues(text).map(item=>[item.field,item.value]));
+    expect(read('אני רוצה לתקן את השכר שלי מ־21,000 ל־23,000 ברוטו')).toEqual({base_salary:23000});
+    expect(read('פנסיה מ-6% ל-7%')).toEqual({employee_pension_percent:7});
+    expect(read('יש לי 4 ילדים עד גיל 23 במקום 3')).toEqual({eligible_children_count:4});
+    expect(read('אולי השכר שלי יעלה ל־25,000 בחודש הבא')).toEqual({});
+    expect(newAmountsIn('מה אם השכר שלי היה 26,000 שקל במקום 23,000?')).toEqual([26000]);
+  });
+});
+
+describe('before the final (27.10): explanation, salary what-if and a one-field update, against real-model failures',()=>{
+  const REP=randomUUID();
+  const role=occupations.find(row=>row.title==='מנהל/ת מוצר')!;
+  const atto=catalog.find(car=>car['מזהה']==='CAR-10')!;
+  /** The approved test profile, version 3. */
+  function approvedV3() {
+    const person=employee(randomUUID(),{first:'נועה',last:'לוי'});
+    person.versions.push({id:randomUUID(),user_id:person.userId,version:3,status:'confirmed',schema_version:'employee-data-v1',created_at:'2026-10-01T00:00:00.000Z',
+      confirmed_at:'2026-10-01T00:00:00.000Z',display_name:'נועה לוי',occupation_title:'מנהל/ת מוצר',base_salary:23000,commissions:0,bonus:1500,employee_pension_percent:6,
+      employee_study_fund_percent:2.5,tax_credit_points:2.75,eligible_children_count:4,current_vehicle_id:'CAR-09',current_participation:350});
+    return person;
+  }
+  const net=(salary:number,person:ReturnType<typeof employee>)=>displayShekels(calculateNet(toCalculatorEmployee({...person.versions[0],base_salary:salary},role),
+    {type:'car',car:atto},rules,toCalculatorOccupation(role)).net);
+  // What Gemini may return for any of these messages.
+  const plans:Plan[]=[{action:'net',goal:'net',filters:{}},{action:'catalog',filters:{}},{action:'value_of_use',filters:{}},{action:'help',filters:{}},
+    {action:'net',intent:'hypothetical',filters:{}}];
+
+  // BUG A: an explanation question is explained, in a new conversation, whatever the model labelled it.
+  it.each([
+    'אני קצת מתבלבלת בין שווי שימוש לבין ההשתתפות החודשית שאני משלמת על הרכב. תוכל להסביר לי בשפה פשוטה מה ההבדל ביניהם ואיך כל אחד משפיע על הנטו שלי?',
+    'לא ממש הבנתי: מה זה שווי שימוש ומה זו ההשתתפות שלי ברכב? איך כל אחד מהם מוריד לי מהנטו?',
+    'תסביר לי בבקשה את ההבדל בין ההשתתפות החודשית לשווי השימוש'
+  ].flatMap(text=>plans.map((plan,index)=>[text,index,plan] as const)))('A: "%s" (model %s) → both concepts and the difference, no cars, no calculation',async(text,_index,plan)=>{
+    const person=approvedV3();const chat=person.conversation();
+    const reply=await chat.turn(text,plan);
+    expect(reply.text).toContain('שווי שימוש הוא');expect(reply.text).toContain('השתתפות חודשית היא');expect(reply.text).toContain('ההבדל בפועל');
+    expect(reply.cards).toEqual([]);expect(reply.calculation).toBeUndefined();expect(reply.approval).toBeUndefined();expect(reply.actions).toBeUndefined();
+    expect(person.runs).toHaveLength(0);expect(chat.state.shownVehicles??[]).toEqual([]);expect(chat.state.pendingQuestion).toBeNull();
+  });
+
+  // BUG B: the what-if salary reaches the calculator; the earlier result is never returned in its place.
+  it.each([
+    'ואם המשכורת שלי תהיה 26,000 שקל, כמה נטו יישאר לי עם ה־ATTO 3?',
+    'אם השכר שלי יהיה 26,000 ברוטו, כמה נטו יהיה לי עם ATTO 3?',
+    'אם אקבל 26,000 בחודש, כמה יישאר לי נטו עם ה־ATTO 3?'
+  ].flatMap(text=>[...plans,{action:'net',goal:'net',filters:{},operations:[fact('base_salary',26000,'26,000')]}].map((plan,index)=>[text,index,plan] as const)))(
+    'B: "%s" (model %s) → calculated at 26,000 with ATTO 3, nothing saved',async(text,_index,plan)=>{
+    const person=approvedV3();const chat=person.conversation();
+    const before=await chat.turn('כמה ATTO 3 ישנה לי בנטו?',{action:'net',goal:'net',filters:{},operations:[{type:'select_vehicles',vehicleIds:[],names:['ATTO 3'],evidence:'ATTO 3'}]});
+    const previous=before.calculation!.scenarios[0].net!;
+    expect(previous).toBe(net(23000,person));
+    const runs=person.runs.length;
+    const reply=await chat.turn(text,plan);
+    // The official calculator, with the temporary salary only: its result differs from the earlier one.
+    expect(net(26000,person)).not.toBe(previous);
+    expect(reply.text).toContain(`בדקתי לפי שכר בסיס של 26,000 ₪ ברוטו`);
+    expect(reply.text).toContain(`ATTO 3: נטו של כ־${net(26000,person).toLocaleString('he-IL')} ₪ בחודש, לעומת ${previous.toLocaleString('he-IL')} ₪ עם השכר המאושר`);
+    expect(reply.calculation).toBeUndefined();expect(reply.text).not.toContain('הנה החישוב');expect(reply.text).not.toContain('איזה שכר');
+    // The approved profile stays version 3 at 23,000; no draft, no pending value, no calculation snapshot.
+    expect(person.versions).toHaveLength(1);expect(person.versions[0]).toMatchObject({version:3,base_salary:23000});
+    expect(person.financial.createVersion).not.toHaveBeenCalled();expect(chat.state.pendingFacts).toEqual([]);expect(person.runs).toHaveLength(runs);
+    // ...and the next ordinary calculation is back on the approved salary.
+    const after=await chat.turn('וכמה ATTO 3 ישנה לי בנטו לפי השכר המאושר?',{action:'net',goal:'net',filters:{}});
+    expect(after.calculation?.scenarios[0].net).toBe(previous);expect(after.calculation?.profileVersion).toBe(3);
+  });
+  it('a future raise mentioned in passing, with the approved salary asked: calculated at 23,000 (kept)',async()=>{
+    const person=approvedV3();const chat=person.conversation();
+    const reply=await chat.turn('אולי השכר שלי יעלה בעתיד ל־25,000, אבל תחשב לפי השכר המאושר: כמה נטו יהיה לי עם ATTO 3?',
+      {action:'net',goal:'net',filters:{},operations:[fact('base_salary',25000,'25,000')]});
+    expect(reply.calculation?.scenarios.map(row=>[row.vehicleId,row.net])).toEqual([['CAR-10',net(23000,person)]]);
+    expect(chat.state.pendingFacts).toEqual([]);expect(person.versions).toHaveLength(1);
+  });
+
+  // BUG C: a one-field update shows its summary only; an explicit request for cars still lists them.
+  it.each(plans.concat([{action:'net',filters:{},operations:[fact('eligible_children_count',5,'5 ילדים')]}]).map((plan,index)=>[index,plan] as const))(
+    'C: "נולד לי עוד ילד… 5 ילדים… לעדכן" (model %s) → only the summary of that change, no cars',async(_index,plan)=>{
+    const person=approvedV3();const chat=person.conversation();
+    const summary=await chat.turn('נולד לי עוד ילד, אז עכשיו יש לי 5 ילדים. אני רוצה לעדכן את זה בפרופיל.',plan);
+    expect(summary.cards).toEqual([]);expect(summary.calculation).toBeUndefined();expect(summary.text).not.toContain('מצאתי');
+    expect(summary.approval?.rows.filter(row=>row.status!=='confirmed').map(row=>[row.label,row.value])).toEqual([['ילדים עד גיל 23','5']]);
+    expect(chat.state.shownVehicles??[]).toEqual([]);expect(person.versions).toHaveLength(1);
+    const saved=await chat.turn(approve(summary));
+    // (The newest row: the test store numbers new rows by count, below the seeded version 3.)
+    expect(person.versions.at(-1)).toMatchObject({status:'confirmed',eligible_children_count:5,base_salary:23000,current_participation:350});
+    expect(person.versions[0]).toMatchObject({version:3,eligible_children_count:4}); // History kept.
+    expect(saved.cards).toEqual([]);
+  });
+  it.each(['אילו רכבים מגיעים לי?','תראה לי רכבים חשמליים שמתאימים לי'])('C: "%s" still lists the catalog',async text=>{
+    const person=approvedV3();const chat=person.conversation();
+    const reply=await chat.turn(text,{action:'catalog',filters:text.includes('חשמליים')?{driveType:'חשמלי'}:{}});
+    expect(reply.cards.length).toBeGreaterThan(0);expect(reply.calculation).toBeUndefined();
+  });
+
+  // Behaviour that already worked with the real model, kept.
+  it('kept: a salary correction shows a summary and saves nothing by itself',async()=>{
+    const person=approvedV3();const chat=person.conversation();
+    const summary=await chat.turn('אני רוצה לתקן את השכר שלי מ־23,000 ל־24,000',{action:'net',filters:{},operations:[fact('base_salary',24000,'24,000')]});
+    expect(summary.approval?.rows.filter(row=>row.status!=='confirmed').map(row=>[row.label,row.value])).toEqual([['שכר בסיס חודשי ברוטו','24,000 ₪']]);
+    expect(person.versions).toHaveLength(1);expect(summary.cards).toEqual([]);
+  });
+  it.each([{action:'help',intent:'conversation',conversationAct:'acknowledge',filters:{}},{action:'net',goal:'net',filters:{}}] as Plan[])('kept: "תודה רבה" after a calculation does not recalculate (model %#)',async plan=>{
+    const person=approvedV3();const chat=person.conversation();
+    await chat.turn('כמה ATTO 3 ישנה לי בנטו?',{action:'net',goal:'net',filters:{},operations:[{type:'select_vehicles',vehicleIds:[],names:['ATTO 3'],evidence:'ATTO 3'}]});
+    const runs=person.runs.length;
+    const reply=await chat.turn('תודה רבה',plan);
+    expect(reply.calculation).toBeUndefined();expect(person.runs).toHaveLength(runs);expect(reply.cards).toEqual([]);
+  });
+  it.each([['כמה נטו יישאר לי אם אקח טסלה מודל Y?','טסלה מודל Y לא נמצא בקטלוג'],['כמה נטו יישאר לי עם טסלה Model 3?','MODEL 3 לא זמין לתפקיד שלך']])(
+    'kept: "%s"',async(text,expected)=>{
+    const person=approvedV3();const chat=person.conversation();
+    const reply=await chat.turn(text,{action:'net',goal:'net',filters:{}});
+    expect(reply.text).toContain(expected);expect(reply.calculation).toBeUndefined();expect(person.runs).toHaveLength(0);
+  });
+  it('kept: the family track with 4 children, and several profile details at once',async()=>{
+    const person=approvedV3();const chat=person.conversation();
+    const family=await chat.turn('האם אני זכאית למסלול המשפחתי?',{action:'family',filters:{}});
+    expect(family.text).toContain('יש לך זכאות גם למסלול המשפחתי');expect(family.cards.map(card=>card.id).sort()).toEqual(['CAR-19','CAR-20']);
+    const recall=await chat.turn('מה השכר שלי, כמה ילדים יש לי ואיזה רכב יש לי היום?',{action:'help',intent:'profile_recall',recallTopic:'current_vehicle',filters:{}});
+    for (const part of ['שכר בסיס חודשי ברוטו: 23,000 ₪','ילדים עד גיל 23: 4','הרכב הנוכחי: COROLLA CROSS']) expect(recall.text).toContain(part);
+  });
+  it('kept: the representative flow, its answer, the same value and a repeated question',async()=>{
+    const person=approvedV3();const chat=person.conversation();
+    const offer=await chat.turn('אני רוצה לדבר עם נציג על ההשתתפות החודשית ברכב');
+    const opened=await chat.turn(offer.actions!.find(action=>action.body.includes('#R'))!.body);
+    expect(opened.text).toContain('פתחתי פנייה לנציג');expect(person.requests).toHaveLength(1);
+    person.claim(person.requests[0].id,REP);
+    const answer=chat.representativeSays(JSON.stringify({kind:'carwise.rep-answer.v1',requestId:person.requests[0].id,field:'current_participation',value:350,
+      note:'אומת מול מערכת השכר',answeredAt:new Date().toISOString()}),REP);
+    const used=await chat.turn(`שימוש בתשובת הנציג #Q${answer.id.slice(0,8).toUpperCase()}`);
+    expect(used.text).toContain('זה בדיוק הערך שכבר שמור בפרופיל המאושר שלך');expect(used.approval).toBeUndefined();expect(person.versions).toHaveLength(1);
+    const again=await chat.turn('מה הנציג ענה לי?',{action:'help',filters:{}});
+    expect(again.text).toContain('350 ₪');expect(person.requests).toHaveLength(1);
   });
 });

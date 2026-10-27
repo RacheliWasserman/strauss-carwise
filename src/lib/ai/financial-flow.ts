@@ -123,7 +123,10 @@ const FIELD_WORDS: Array<[FactField, string]> = [
   ['employee_study_fund_percent', 'הפרשה\\s+לקרן\\s+השתלמות|קרן\\s+ה?השתלמות|השתלמות|קה["״\'׳]?ש'],
   ['tax_credit_points', 'נקודות\\s+ה?זיכוי|נק["\'׳]?\\s*זיכוי|נקודות|זיכוי'],
   ['eligible_children_count', 'ילדים(?:\\s+(?:עד|מתחת\\s+ל)\\s*גיל\\s+\\d+)?|ילדות|ילד|ילדה'],
-  ['current_participation', 'השתתפות(?:\\s+חודשית)?(?:\\s+ברכב(?:\\s+היום)?)?|משתתף|משתתפת'],
+  // Also what the employee pays for today's car ("אני משלמת עליה 350 שקל בחודש", "הרכב עולה לי 350"): paying FOR the car,
+  // never "משלמים לי" (being paid, a salary).
+  ['current_participation', 'השתתפות(?:\\s+חודשית)?(?:\\s+ברכב(?:\\s+היום)?)?|משתתף|משתתפת|' +
+    'משלמ(?:ת|ים)?\\s+(?:עליה|עליו|עליהם|על\\s+ה?רכב|על\\s+זה|בשבילו|בשבילה|לרכב|ברכב|השתתפות)|הרכב\\s+עולה\\s+לי'],
   ['display_name', 'שם\\s+בפרופיל|שמי|קוראים\\s+לי|השם\\s+שלי']
 ];
 const FIELD_WORD_PATTERNS = FIELD_WORDS.map(([field, words]) => [field, new RegExp(`(?:^|[^\\p{L}])[והבלמש]{0,2}(${words})(?=$|[^\\p{L}])`, 'gu')] as const);
@@ -152,16 +155,36 @@ export const fieldsNamedIn = (text: string) => [...new Set(fieldMentions(text).m
  * is 0. Anything not clearly paired is left out (and still asked). Questions and the current car are not read here.
  */
 export function extractFieldValues(text: string): Array<{ type: 'report_fact'; field: Exclude<FactField, 'current_vehicle_id'>; value: number; evidence: string }> {
-  const results = new Map<FactField, { value: number; evidence: string }>();
+  return [...readFieldValues(text)].flatMap(([field, items]) => field === 'current_vehicle_id' || new Set(items.map(item => item.value)).size !== 1 ? [] :
+    [{ type: 'report_fact' as const, field: field as Exclude<FactField, 'current_vehicle_id'>, value: items.at(-1)!.value, evidence: items.at(-1)!.evidence }]);
+}
+/** Fields given two different values in one message ("ההשתתפות 300 ... משלמת עליה 350"): asked, never one of them guessed. */
+export function fieldValueConflicts(text: string): Array<{ field: FactField; values: number[] }> {
+  return [...readFieldValues(text)].flatMap(([field, items]) => {
+    const values = [...new Set(items.map(item => item.value))];
+    return values.length > 1 ? [{ field, values }] : [];
+  });
+}
+/** Words before a number that make it the value being REPLACED: "מ־21,000 ל־23,000", "במקום 3", "כבר לא 21,000 אלא…". */
+const REPLACED_VALUE = /(?:(?:^|[^\p{L}])ו?מה?[־-]?\s*|(?:במקום|כבר\s+לא|ולא)\s+(?:ה[־-]?)?)$/u;
+/** A value said about the future or as uncertain ("אולי השכר יעלה ל־25,000 בחודש הבא", "עדיין לא סופי"): never a fact. */
+export const FUTURE_OR_UNCERTAIN = /(?:^|[^\p{L}])(?:אולי|יעלה|תעלה|ירד|תרד|יגדל|צפוי|צפויה|מתוכנן|מתוכננת|בעתיד|בחודש\s+הבא|בשנה\s+הבאה|לא\s+סופי|עדיין\s+לא)(?=$|[^\p{L}])/u;
+/** The employee's numbers that are NEW values: not the value being replaced ("מ־21,000"), not part of a label. */
+export function newAmountsIn(text: string): number[] {
+  return amountsIn(text).filter(amount => !REPLACED_VALUE.test(text.slice(Math.max(0, amount.start - 14), amount.start))).map(amount => amount.value);
+}
+function readFieldValues(text: string): Map<FactField, Array<{ value: number; evidence: string }>> {
+  const results = new Map<FactField, Array<{ value: number; evidence: string }>>();
   const clauses = [...text.matchAll(/[^;\n,.]+(?:[,.](?=\d)[^;\n,.]*)*/gu)];
   for (const clause of clauses) {
     for (const part of clause[0].split(/\s(?=(?:וגם|אבל|אך)\s)/u)) {
-      if (part.includes('?')) continue;
+      if (part.includes('?') || FUTURE_OR_UNCERTAIN.test(part)) continue;
       const offset = clause.index! + clause[0].indexOf(part);
       const names = fieldMentions(part).filter(item => item.field !== 'display_name');
       if (!names.length) continue;
-      // The label's own digits ("עד גיל 23") are part of the name, never its value.
-      const numbers = amountsIn(part).filter(amount => !names.some(name => amount.start >= name.start && amount.end <= name.end));
+      // The label's own digits ("עד גיל 23") are part of the name, never its value; the value being replaced is not a value.
+      const numbers = amountsIn(part).filter(amount => !names.some(name => amount.start >= name.start && amount.end <= name.end) &&
+        !REPLACED_VALUE.test(part.slice(Math.max(0, amount.start - 14), amount.start)));
       const items = [...names.map(name => ({ kind: 'name' as const, ...name })), ...numbers.map(amount => ({ kind: 'number' as const, ...amount }))]
         .sort((a, b) => a.start - b.start);
       const used = new Set<number>();
@@ -186,12 +209,11 @@ export function extractFieldValues(text: string): Array<{ type: 'report_fact'; f
           if (said) { value = 0; from = name.start - said[1].length; }
         }
         if (value === undefined) continue;
-        results.set(name.field, { value, evidence: text.slice(offset + from, offset + to).trim() });
+        results.set(name.field, [...(results.get(name.field) ?? []), { value, evidence: text.slice(offset + from, offset + to).trim() }]);
       }
     }
   }
-  return [...results].flatMap(([field, item]) => field === 'current_vehicle_id' ? [] :
-    [{ type: 'report_fact' as const, field: field as Exclude<FactField, 'current_vehicle_id'>, value: item.value, evidence: item.evidence }]);
+  return results;
 }
 const DISPUTE_MARKER =/(?:^|[^\p{L}])(?:לא\s+(?:נכון|נכונה|נכונים|נכונות|מדויק|מדויקת|מדויקים|מדויקות|מעודכן|מעודכנת|מעודכנים)|שגוי|שגויה|שגויים|שגויות|טעות|טעויות|טעיתי|טעית|טעיתם|לתקן|לשנות|לעדכן|תיקון)(?=$|[^\p{L}])/u;
 export const GENERAL_CORRECTION_QUESTION = 'בשמחה, אילו פרטים לתקן? אפשר לכתוב כמה פרטים יחד. אם הערך הנכון של פרט מסוים לא ידוע, אפשר פשוט לכתוב את זה.';
@@ -461,6 +483,8 @@ export type ApplyOptions = VehicleContext & {
   extract?: boolean;
   /** The message asks for a representative: it is not an answer to the question on screen. */
   notAnAnswer?: boolean;
+  /** Today's car is named in the employee's own words as the car moved from: a present fact, also inside a what-if. */
+  presentCar?: boolean;
 };
 export async function applyFinancialOperations(state: AdvisorState, operations: FinancialOperation[], latest: ConversationMessageRow,
   deps: Pick<FinancialDependencies, 'findVehicles' | 'catalogRows'>, options: ApplyOptions = {}): Promise<AppliedFacts> {
@@ -469,13 +493,30 @@ export async function applyFinancialOperations(state: AdvisorState, operations: 
   // Values written next to field names are read by the server ("שכר 18,500, ... נקודות זיכוי 2.75 ו־2 ילדים"): all of them,
   // and they replace a model's reading of those fields (a model may skip some, or take "2" from "2 ילדים" as the points).
   const extracted = options.extract ? extractFieldValues(latest.body) : [];
-  const extractedFields = new Set<FactField>(extracted.map(operation => operation.field));
+  // Two different values for one field in the same message: neither is used (nor a model's), the employee is asked.
+  const conflicts = options.extract ? fieldValueConflicts(latest.body) : [];
+  const extractedFields = new Set<FactField>([...extracted.map(operation => operation.field), ...conflicts.map(item => item.field)]);
+  for (const { field, values } of conflicts) {
+    const shown = values.map(value => FIELDS[field].kind === 'money' ? `${value.toLocaleString('he-IL')} ₪` : FIELDS[field].kind === 'percent' ? `${value}%` : value.toLocaleString('he-IL'));
+    // ("ל" absorbs the article: "להשתתפות ברכב", not "לההשתתפות".)
+    notes.push({ field, text: `כתבת שני ערכים שונים ל${FIELDS[field].about.replace(/^ה/u, '')}: ${joinNames(shown)}. מה הערך הנכון?`, explicit: true });
+  }
   // A model value counts only for a field the message names, or as the answer to the question on screen: a bare "0"
   // under the summary is not permission to change some field.
   let unanchored = 0;
+  // The clause a quote sits in ("אולי השכר יעלה ל־25,000 בחודש הבא"): a future or uncertain value is never a fact,
+  // whoever read it.
+  const clauseOf = (quote: string) => {
+    const at = latest.body.indexOf(quote);
+    if (at < 0) return quote;
+    const start = Math.max(...[',', '.', ';', '\n', '?', '!'].map(mark => latest.body.lastIndexOf(mark, at - 1))) + 1;
+    const ends = [',', '.', ';', '\n', '?', '!'].map(mark => latest.body.indexOf(mark, at + quote.length)).filter(index => index >= 0);
+    return latest.body.slice(start, ends.length ? Math.min(...ends) : latest.body.length);
+  };
   operations = [...operations.filter(operation => {
     if (operation.type !== 'report_fact' && operation.type !== 'unknown_fact') return true;
     if (extractedFields.has(operation.field)) return false;
+    if (operation.type === 'report_fact' && FUTURE_OR_UNCERTAIN.test(clauseOf(operation.evidence))) return false;
     if ((operation.field === state.pendingField && !options.notAnAnswer) || fieldNamedIn(operation.field, latest.body)) return true;
     unanchored++;
     return false;
@@ -499,8 +540,10 @@ export async function applyFinancialOperations(state: AdvisorState, operations: 
   const future = hypothetical(latest.body);
   for (const operation of operations) {
     if (!latest.body.includes(operation.evidence)) continue;
-    // A hypothetical question never changes the current car or participation in the profile.
-    if (future && (operation.type === 'report_current_vehicle' || (operation.type === 'report_fact' && CURRENT_CAR_FIELDS.includes(operation.field)))) continue;
+    // A hypothetical question never changes the current car or participation in the profile ("אם אוותר על הרכב").
+    // Only the car moved FROM in the employee's words ("אם אעבור מהקורולה קרוס ל...") is today's car, a present fact.
+    if (future && ((operation.type === 'report_current_vehicle' && !options.presentCar) ||
+      (operation.type === 'report_fact' && CURRENT_CAR_FIELDS.includes(operation.field)))) continue;
     if (operation.type === 'report_fact') {
       // Evidence may be only the digits sliced out of an ID ("03" from CAR-03).
       // Require the value to occur as an amount in the full employee message as well.
@@ -759,6 +802,10 @@ export type FinancialInput = {
   disputedNow?: FactField[];
   /** The turn advanced something else (e.g. a vehicle was selected), so a repeated question is not a failed ask. */
   progressed?: boolean;
+  /** Save an approved summary and stop: the turn answers the question the update came with (e.g. eligibility). */
+  stopAfterSave?: boolean;
+  /** false: nothing in this turn asks for a calculation, so an unchanged approved profile is not recalculated. */
+  calculate?: boolean;
 };
 export type FinancialOutcome = Pick<CatalogMessage, 'approval' | 'calculation' | 'actions'> & {
   text: string; offerRepresentative?: string;
@@ -767,7 +814,8 @@ export type FinancialOutcome = Pick<CatalogMessage, 'approval' | 'calculation' |
 const rulesMeta = z.object({ version: z.string().min(1).max(120), netMethod: z.object({ taxYear: z.number().int() }).passthrough() }).passthrough();
 
 /** Read-only salary scenario: reuse the calculator/adapters, never the profile approval/write path. */
-export async function simulateSalary(userId:string,state:AdvisorState,salary:number,occupations:AdvisorOccupation[],deps:FinancialDependencies):Promise<string> {
+/** vehicleIds: the cars named in the scenario message itself ("עם ה־ATTO 3"); otherwise the cars already chosen. */
+export async function simulateSalary(userId:string,state:AdvisorState,salary:number,occupations:AdvisorOccupation[],deps:FinancialDependencies,vehicleIds?:string[]):Promise<string> {
   if (!Number.isFinite(salary)||salary<1000||salary>FIELDS.base_salary.max) return 'לסימולציה צריך שכר בסיס חודשי ברוטו תקין בשקלים. מה הסכום המלא?';
   if (state.pendingFacts.length||state.pendingApproval||state.disputedFacts?.length||state.unknownFacts?.length) {
     return 'אפשר לבדוק שינוי שכר, אבל קודם צריך להשלים או לאשר את הפרטים שממתינים בשיחה. שום פרט לא השתנה; אפשר להמשיך מהשאלה הקודמת.';
@@ -780,9 +828,9 @@ export async function simulateSalary(userId:string,state:AdvisorState,salary:num
     if (!role||numeric.some(field=>profile[field]===null||profile[field]===undefined||!Number.isFinite(Number(profile[field])))||
       profile.current_vehicle_id===undefined) return 'חסרים פרטים מאושרים או נתוני תפקיד לחישוב בטוח. צריך להשלים אותם לפני הסימולציה; לא אחליף מידע חסר באפס.';
     if (state.occupation?.match&&state.occupation.match.title!==role.title) return 'יש בשיחה תפקיד שונה מהפרופיל המאושר. צריך לברר ולאשר את התפקיד לפני סימולציה כספית; לא שיניתי את הפרופיל.';
-    const waiver=state.activeGoal?.kind==='waiver'||(!state.activeGoal&&state.goal==='waiver');
-    const selected=state.activeGoal?.kind==='vehicles'?state.activeGoal.vehicleIds:state.selectedVehicleIds??[];
-    if (!waiver&&!selected.length) return 'בשמחה! לאיזה רכב נבחר להשוות את השכר ההיפותטי? אפשר גם לבחון ויתור על רכב.';
+    const waiver=!vehicleIds?.length&&(state.activeGoal?.kind==='waiver'||(!state.activeGoal&&state.goal==='waiver'));
+    const selected=vehicleIds?.length?vehicleIds:state.activeGoal?.kind==='vehicles'?state.activeGoal.vehicleIds:state.selectedVehicleIds??[];
+    if (!waiver&&!selected.length) return 'לאיזה רכב לבדוק את השכר הזה? אפשר לכתוב שם של דגם, או לבדוק ויתור על רכב.';
     const rules=await deps.rules();rulesMeta.parse(rules);
     const occupation=toCalculatorOccupation(role);
     const approved=toCalculatorEmployee(profile,role);
@@ -800,9 +848,9 @@ export async function simulateSalary(userId:string,state:AdvisorState,salary:num
       const previous=displayShekels(calculateNet(approved,choice,rules,occupation).net);
       const net=displayShekels(calculateNet(assumed,choice,rules,occupation).net);
       const delta=net-previous;
-      lines.push(`${car?car['דגם (כינוי מסחרי)']:'ויתור על רכב'}: נטו משוער ${shekels(net)}, לעומת ${shekels(previous)} באותה בחירה לפי הפרופיל המאושר (${delta>=0?'+':'−'}${shekels(delta)} בחודש).`);
+      lines.push(`• ${car?car['דגם (כינוי מסחרי)']:'ויתור על רכב'}: נטו של כ־${shekels(net)} בחודש, לעומת ${shekels(previous)} עם השכר המאושר (${delta>=0?'+':'−'}${shekels(delta)}).`);
     }
-    return `סימולציה היפותטית בלבד: שכר בסיס חודשי ברוטו ${shekels(salary)}; שאר הנתונים נשארו כפי שאושרו.\n${lines.join('\n')}\nזו הערכה ולא תלוש שכר. הפרופיל, התפקיד, הרכב הנוכחי והבחירה הקודמת לא השתנו. הסימולציה נשמרת בהודעה בלבד.`;
+    return `בדקתי לפי שכר בסיס של ${shekels(salary)} ברוטו, ושאר הפרטים כפי שאישרת:\n${lines.join('\n')}\nזו הערכה בלבד, והפרטים השמורים שלך נשארו כמו שהם.`;
   } catch {return 'לא הצלחתי לטעון את כל הנתונים לסימולציה בטוחה כרגע. לא חושבה תוצאה ולא השתנה שום פרט; אפשר לנסות שוב בהמשך.';}
 }
 
@@ -939,6 +987,10 @@ export async function advanceFinancialFlow(input: FinancialInput, deps: Financia
   state.confirmedVersion = { id: profile.id, version: profile.version };
   const savedText = approvedNow ? 'שמרתי את הפרטים ✓ ' : '';
 
+  if (input.stopAfterSave && approvedNow) return say('שמרתי את הפרטים ✓ הפרופיל עודכן.');
+  // The last calculation is not the default answer: without a request for one in this turn, nothing is recalculated.
+  if (input.calculate === false && !approvedNow) return say('');
+
   // 3. Which alternatives to calculate.
   const shown = state.shownVehicles ?? [];
   // A waiver question is answered on its own; earlier car results are repeated only when cars are named now.
@@ -950,7 +1002,8 @@ export async function advanceFinancialFlow(input: FinancialInput, deps: Financia
     if (shown.length && shown.length <= 3) selected = shown.map(vehicle => vehicle.id);
     else if (shown.length) {
       state.pendingQuestion = 'vehicle_selection';
-      return say(`${savedText}לאילו רכבים לחשב את הנטו? אפשר לבחור אחד או כמה${shown.length > 6 ? ' (עד 6)' : ''}.`, {
+      // The buttons are only the first cars shown: any catalog car can be named instead.
+      return say(`${savedText}לאילו רכבים לחשב את הנטו? אפשר לבחור אחד או כמה${shown.length > 6 ? ' (עד 6)' : ''}, או לכתוב שם של דגם אחר מהקטלוג.`, {
         actions: [...(shown.length <= 6 ? [{ label: 'כל הרכבים שהוצגו', body: 'חישוב נטו לכל הרכבים שהוצגו', primary: true }] : []),
           ...shown.slice(0, 6).map(vehicle => ({ label: vehicle.name.slice(0, 60), body: `חישוב נטו עבור ${vehicle.name} (${vehicle.id})`.slice(0, 200) }))].slice(0, 8)
       });

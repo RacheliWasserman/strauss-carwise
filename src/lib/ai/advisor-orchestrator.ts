@@ -16,13 +16,15 @@ import {detectOccupation} from './occupation-matcher';
 import { searchAdvisorVehicles } from '../advisor-catalog-service';
 import { getCalculationRules } from '../rules-repository';
 import { activeCatalog, joinNames, selectableForGroup, vehiclesMentioned, vehiclesNamed, type CatalogRow } from './vehicle-selection';
-import { MODEL_ALIASES, namesVehicleInHebrew, normalizeVehicleText, unlistedVehicles, vehicleDirection } from './vehicle-identification';
-import { decodeRepAnswer, decodeRepReply, fieldFromTopic, formatAnswerValue, REQUESTABLE_FIELDS, requestableFieldSchema, requestTopic, type RequestableField } from '../representative-answer';
+import { driveTypeIn, identifyVehicle, MODEL_ALIASES, namesVehicleInHebrew, normalizeVehicleText, unlistedVehicles, vehicleDirection } from './vehicle-identification';
+import { decodeRepAnswer, decodeRepReply, fieldFromTopic, formatAnswerValue, REQUESTABLE_FIELDS, requestableFieldSchema, requestTopic, useAnswerMessage, type RequestableField } from '../representative-answer';
 import type { RepresentativeRequestRow } from '../representative-request-repository';
-import { applyRepresentativeValue, CURRENT_VEHICLE_TOPIC, disputedFieldsIn, extractFieldValues, fieldsNamedIn, GENERAL_CORRECTION_QUESTION, generalCorrectionIntent, hypothetical, questionFor, unknownFieldsIn } from './financial-flow';
+import { applyRepresentativeValue, CURRENT_VEHICLE_TOPIC, disputedFieldsIn, extractFieldValues, fieldsNamedIn, GENERAL_CORRECTION_QUESTION, generalCorrectionIntent, hypothetical, fieldValueConflicts, newAmountsIn, questionFor, saysUnknown, unknownFieldsIn } from './financial-flow';
 import { decodePayslipReview, PAYSLIP_FIELD_ORDER } from '../payslip/payslip-contract';
 import { applyPayslipReview, type AppliedPayslip } from '../payslip/payslip-handoff';
-import {profileRecallTopic,recallProfile,recallTopicSchema,type RecallTopic} from './profile-recall';
+import {profileRecallFields,profileRecallTopic,recallFields,recallProfile,recallTopicSchema,type RecallTopic} from './profile-recall';
+import type { EmployeeDataVersionRow } from '../employee-data-repository';
+import type { CalculationRules } from '../rules-repository';
 import { conversationActSchema, conversationReply } from './conversation-reply';
 
 const evidence = z.string().min(1).max(1000);
@@ -162,7 +164,10 @@ const ADDITIONAL_REQUEST_UNAVAILABLE='לא נפתחה פנייה נוספת. א�
 const REPRESENTATIVE_WORD=/(?:^|[^\p{L}])[והלבש]{0,2}(?:נציג|נציגה|נציגים|נציגות|נציגת)(?=$|[^\p{L}])|בן\s+אדם|אדם\s+אמיתי|גורם\s+אנושי|מענה\s+אנושי|מישהו\s+אנושי/u;
 const REPRESENTATIVE_ASK=/פנייה|פניה|לפתוח|תפתח|תפתחי|לפנות|אפנה|לדבר|לשוחח|רוצה|רוצים|צריך|צריכה|מבקש|מבקשת|אפשר|תעביר|תעבירי|תחבר|תחברי|יכול|יכולה|שיבדוק|שתבדוק|שיעזור/u;
 const NO_REPRESENTATIVE=/(?:לא\s+(?:צריך|צריכה|רוצה|רוצים)|בלי|אין\s+צורך)\s+(?:ב?נציג|לפנות|פנייה|בפנייה)/u;
-export const explicitRepresentativeRequest=(text:string)=>REPRESENTATIVE_WORD.test(text)&&REPRESENTATIVE_ASK.test(text)&&!NO_REPRESENTATIVE.test(text);
+/** "מה הנציג ענה לי?", "הגיעה תשובה מהנציג?": about a request that exists, never a request for a new one. */
+const REPRESENTATIVE_ANSWER_QUESTION=/(?:^|[^\p{L}])(?:מה|האם|מתי|איך)\s+(?:ה)?נציג(?:ה|ות)?\s+(?:ענה|ענתה|ענו|השיב|השיבה|אמר|אמרה|כתב|כתבה|החזיר|החזירה)|(?:ענה|ענתה|השיב|השיבה)\s+(?:לי\s+)?(?:ה)?נציג|תשובת\s+(?:ה)?נציג|התשובה\s+(?:של|מ)\s*(?:ה)?נציג|(?:הגיעה|התקבלה|יש)\s+(?:כבר\s+)?תשובה\s+(?:מ|של\s+)?(?:ה)?נציג/u;
+export const explicitRepresentativeRequest=(text:string)=>REPRESENTATIVE_WORD.test(text)&&REPRESENTATIVE_ASK.test(text)&&!NO_REPRESENTATIVE.test(text)&&
+  !REPRESENTATIVE_ANSWER_QUESTION.test(text);
 const GENERAL_REPRESENTATIVE_TOPIC='בקשה לשיחה עם נציג';
 const OCCUPATION_TOPIC='בירור העיסוק וקבוצת הזכאות';
 /** The exact subject of a request, from the employee's words: a field a representative can answer, else its theme. */
@@ -175,6 +180,31 @@ function representativeTopic(text:string):string {
 }
 /** A message that is only a number ("0", "2", "300 ₪", "6%"): it answers the question on screen, never a field of its own. */
 const BARE_VALUE=/^[\s(]*(?:\d[\d.,]*)\s*(?:₪|ש["״']?ח|שקלים|שקל|%|אחוזים|אחוז|נקודות)?[\s.!)]*$/u;
+const VALUE_OF_USE_WORD=/שווי\s+(?:ה)?שימוש/u;
+const PARTICIPATION_WORD=/השתתפות|משתתף|משתתפת/u;
+// Explanations that follow the calculator: value of use enters taxable income only; participation comes off the net
+// (for today's car the approved amount, for another car its catalog default).
+const EXPLAIN_VALUE_OF_USE='שווי שימוש הוא הערך שרשות המסים מייחסת להטבה של רכב חברה. הוא נוסף לשכר רק לצורך חישוב המס: לא מקבלים אותו בכסף ולא מורידים אותו ישירות מהמשכורת, אבל המס עליו מקטין את הנטו.';
+const EXPLAIN_PARTICIPATION='השתתפות חודשית היא הסכום שמשלמים בפועל על הרכב. עבור הרכב של היום זה הסכום שבפרופיל, ועבור רכב אחר זו ההשתתפות שנקבעה לו בקטלוג החברה. בחישוב היא יורדת ישירות מהנטו.';
+const EXPLAIN_DIFFERENCE='ההבדל בפועל: שווי השימוש משפיע על הנטו דרך המס, וההשתתפות יורדת מהנטו כמו שהיא. לכן כשמשווים רכבים חשוב להסתכל על שניהם יחד, וזה מה שהחישוב עושה.';
+/** "איזה רכב הכי משתלם לי (מכל הרכבים)?": a recommendation over the whole catalog, which CarWise Match does. */
+const BEST_CAR_OVERALL=/(?:איזה|איזו|מה)\s+(?:ה)?רכב\s+(?:הכי\s+)?(?:משתלם|מומלץ|כדאי|מתאים|טוב)(?:\s+(?:ביותר|לי))*|(?:הכי|ביותר)\s+(?:משתלם|כדאי|מומלץ)|(?:תמליץ|תמליצי|תמליצו|המלצה)\s+(?:לי\s+)?(?:על\s+)?(?:רכב|דגם)/u;
+const MATCH_POINTER='כדי למצוא איזה רכב הכי משתלם לך מכל הרכבים שמתאימים לך, כדאי לעבור למסך CarWise Match: עונים על כמה שאלות קצרות ומקבלים שלוש המלצות עם הסבר. ואם יש רכבים מסוימים שרוצים להשוות כאן, אפשר לכתוב את השמות שלהם.';
+/** A question about eligibility or the family track (not a net calculation). */
+const ELIGIBILITY_QUESTION=/מסלול\s+(?:ה)?משפחתי|(?:משנה|ישנה|שינה|תשנה|השתנתה|ישתנה|משפיע|ישפיע|השפיע)\s+(?:על\s+|את\s+)?(?:ה)?זכאות|זכאות\s+(?:שלי\s+)?(?:ל|ב)?רכבים|נפתחו\s+לי|(?:רכבים|דגמים)\s+נוספים\s+(?:נפתחו|מגיעים)/u;
+/** Words that make a written value an update of the profile ("לעדכן", "נולד לי", "עכשיו יש לי", "השתנה"). */
+const PROFILE_UPDATE_WORDS=/(?:^|[^\p{L}])(?:לעדכן|תעדכן|תעדכני|עדכון|עדכני|לשנות|תשנה|תשני|לתקן|תקן|תקני|נולד|נולדה|נולדו|השתנה|השתנתה|עלה\s+ל|ירד\s+ל|עכשיו\s+יש\s+לי|מעכשיו|כבר\s+לא)(?=$|[^\p{L}])/u;
+/** A counterfactual: "הייתי", "נניח", "אילו הייתי…". ("אילו רכבים…" alone is a question word, not a what-if.) */
+const SCENARIO_ONLY=/(?:^|[^\p{L}])(?:הייתי|נניח|אילו\s+(?:הייתי|היה|הייתה|היו))(?=$|[^\p{L}])/u;
+/** Words that ask for a (new or repeated) net calculation. */
+const CALCULATION_WORDS=/נטו|לחשב|חישוב|תחשב|תחשבי|להשוות|השוואה|השווה|ישפיע|ישנה|משנה|יעלה|עולה|כמה|ויתור|לוותר|אוותר|השפעה|הפרש|תוצאה/u;
+const NOTHING_TO_CALCULATE='במה עוד אפשר לעזור? אפשר לבדוק רכב אחר, להשוות רכבים או לעדכן פרט בפרופיל.';
+/** The salary to check in a what-if, asked when the message gave none. */
+const SALARY_SCENARIO_QUESTION='בשמחה. איזה שכר בסיס חודשי ברוטו לבדוק?';
+/** The employee asks to use the salary already approved ("כמה נטו לפי השכר המאושר שלי?"): never a salary scenario. */
+const APPROVED_SALARY=/(?:לפי|עם|ב)\s*ה?(?:שכר|משכורת)\s+(?:ה?מאושר|ה?נוכחי|ה?שמור|ה?קיים|שלי\s+היום)|(?:השכר|המשכורת)\s+(?:המאושר|הנוכחי|השמור)/u;
+/** "אל תשנה את הפרופיל", "תשאיר את הפרופיל כמו שהוא", "רק בודקת": nothing in this message changes the profile. */
+const KEEP_PROFILE=/(?:אל\s+(?:ת|תת)?(?:שנה|שני|עדכן|עדכני)|בלי\s+(?:לשנות|לעדכן)|לא\s+(?:לשנות|לעדכן)|תשאיר(?:י)?\s+את\s+ה?(?:פרופיל|פרטים|נתונים)|תשאיר(?:י)?\s+(?:הכול|הכל)|רק\s+(?:בודק|בודקת|בודקים|לבדוק))(?=$|[^\p{L}])/u;
 const WHICH_DETAIL_AT_SUMMARY='לא בטוח שהבנתי איזה פרט לשנות. אפשר לכתוב את שם הפרט ואת הערך החדש? למשל: עמלות חודשיות — 0 ₪.';
 const WHICH_DETAIL='לא בטוח שהבנתי לאיזה פרט המספר מתייחס. אפשר לכתוב את שם הפרט ואת הערך? למשל: עמלות חודשיות — 0 ₪.';
 const APPROVAL_CODE=/#([A-F0-9]{8})(?![A-F0-9])/;
@@ -389,8 +419,83 @@ async function advisorTurn(track:Track, userId:string, conversationId:string, hi
   const answerHypothetical=()=>{
     const found=detectOccupation(latest.body,occupations,{partial:true});
     const detail=found?.exact&&found.rows.length===1?`לפי טבלת העיסוקים, לתפקיד ${found.rows[0].title} משויכת קבוצה ${found.rows[0].group_code}. `:'';
-    return sideReply(`${detail}זו אפשרות היפותטית בלבד; התפקיד והפרופיל שלך לא השתנו. אפשר להמשיך בבחירה הקודמת.`,'hypothetical');
+    return sideReply(`${detail}זו רק בדיקה של אפשרות: התפקיד והפרטים השמורים שלך נשארו כמו שהם.`,'hypothetical');
   };
+  // Eligibility from the official rules and the approved profile: the role's group, and the family track by its own
+  // condition (rules.familyTrack), with what the latest update changed. Never a net calculation.
+  const eligibilityReply=async(profile:EmployeeDataVersionRow,opening='')=>{
+    const role=occupations.find(row=>row.title===profile.occupation_title);
+    let rules:CalculationRules;
+    try { rules=await (await financial()).rules(); }
+    catch { return respond(`${opening}כללי הזכאות לא זמינים לי כרגע, ולכן לא אקבע זכאות בלי לבדוק. אפשר לנסות שוב עוד מעט.`); }
+    let catalog:CatalogRow[]=[];
+    try { catalog=await activeCatalog(dependencies.catalog?.search??searchAdvisorVehicles); } catch { /* Named without the cars. */ }
+    const children=Number(profile.eligible_children_count);
+    const min=rules.familyTrack.minChildren;
+    const familyCars=catalog.filter(row=>rules.familyTrack.cars.includes(row.id));
+    const lines:string[]=[role?`לפי התפקיד שלך (${role.title}) הזכאות היא לרכבים מקבוצה ${role.group_code} ומטה. מספר הילדים לא משנה את הקבוצה.`
+      :'את קבוצת הזכאות לפי התפקיד לא הצלחתי לבדוק כרגע מול רשימת התפקידים.'];
+    const open=Number.isFinite(children)&&children>=min;
+    if (!Number.isFinite(children)) lines.push('מספר הילדים לא רשום בפרופיל המאושר, ולכן אי אפשר לבדוק את המסלול המשפחתי.');
+    else if (open) lines.push(`עם ${children} ילדים עד גיל 23 יש לך זכאות גם למסלול המשפחתי, שדורש לפחות ${min} ילדים.`+
+      (familyCars.length?` הרכבים במסלול: ${joinNames(familyCars.map(row=>row.display_name))}.`:'')+
+      ` על ההפרש שמעל תקציב הקבוצה משתתפים ב־${Math.round(rules.familyTrack.gapSplitEmployee*100)}% ממנו, לפי כללי החברה.`);
+    else lines.push(`המסלול המשפחתי דורש לפחות ${min} ילדים עד גיל 23, ובפרופיל המאושר רשומים ${children}, ולכן הוא עדיין לא פתוח לך.`);
+    try {
+      const before=(await (await financial()).versions(userId)).filter(row=>row.user_id===userId&&row.status==='confirmed'&&row.version<profile.version)
+        .sort((a,b)=>b.version-a.version)[0];
+      const was=Number(before?.eligible_children_count);
+      if (before&&Number.isFinite(was)&&was!==children) lines.push((was>=min)===open?`העדכון מ־${was} ל־${children} ילדים לא שינה את הזכאות.`
+        :open?`העדכון מ־${was} ל־${children} ילדים הוא שפתח לך את המסלול המשפחתי.`:`אחרי העדכון ל־${children} ילדים המסלול המשפחתי כבר לא פתוח.`);
+    } catch { /* The change is not described. */ }
+    const cards=open?familyCars:[];
+    if (cards.length) state.shownVehicles=cards.map(row=>({id:row.id,name:row.display_name}));
+    return {body:encodeCatalogMessage({kind:'carwise.catalog.v1',text:`${opening}${lines.join('\n')}`,cards,recordedAt:new Date().toISOString(),
+      state:{group:state.group,groupSource:state.groupSource,awaitingGroup:false,filters:state.preferences}}),state:advisorStateSchema.parse(state)};
+  };
+  const requests=dependencies.representativeRequests??{
+    get:async(requestId:string,conversation:string,user:string)=>(await import('../representative-request-repository')).getEmployeeRepresentativeRequest(requestId,conversation,user),
+    findActive:async(conversation:string,user:string,topic?:string)=>(await import('../representative-request-repository')).findActiveRepresentativeRequest(conversation,user,topic),
+    cancel:async(requestId:string)=>(await import('../representative-request-repository')).cancelOwnRepresentativeRequest(requestId)
+  };
+  // "מה הנציג ענה לי?": a question about an EXISTING request is answered from the representative's own structured
+  // message in this conversation, verified against the employee's request (never another employee's), with what it
+  // means for the approved profile. It never opens a new request and never applies the value by itself.
+  if (![APPROVAL_CODE,REPRESENTATIVE_CODE,ANSWER_CODE].some(code=>code.test(latest.body))&&REPRESENTATIVE_ANSWER_QUESTION.test(latest.body)) {
+    track.stage='representative_status';
+    console.info('[carwise.ai.advisor]',{phase:'plan',outcome:'deterministic',reason:'representative_answer_question'});
+    const answered=history.flatMap(message=>{
+      if (message.sender_type!=='representative') return [];
+      const answer=decodeRepAnswer(message.body);const reply=answer?null:decodeRepReply(message.body);
+      return answer||reply?[{message,answer,reply}]:[];
+    });
+    const last=answered.at(-1);
+    if (!last) {
+      const waiting=representativeEntries(state).some(entry=>entry.status==='requested');
+      return respond(waiting?'הפנייה לנציג פתוחה, ותשובה עוד לא הגיעה. כשהיא תגיע, היא תופיע כאן בשיחה.'
+        :'לא מצאתי בשיחה הזו פנייה לנציג או תשובה ממנו. אם צריך, אפשר לבקש שאפתח פנייה.');
+    }
+    if (last.reply) return respond(`הנציג השיב לפנייה שלך:\n${last.reply.text}`);
+    const answer=last.answer!;
+    let request:RepresentativeRequestRow|null=null;
+    try { request=await requests.get(answer.requestId,conversationId,userId); } catch { /* Reported below. */ }
+    if (!request||request.owner_user_id!==userId||request.assigned_representative_id!==last.message.sender_user_id) {
+      return respond('לא הצלחתי לאמת כרגע את תשובת הנציג מול הפנייה שלך, ולכן לא אציג אותה. אפשר לנסות שוב עוד רגע.');
+    }
+    const label=REQUESTABLE_FIELDS[answer.field].label;
+    let approved:number|undefined;
+    try { const profile=await (await financial()).confirmed(userId); if (profile?.user_id===userId) approved=Number(profile[answer.field]); } catch { /* Said without it. */ }
+    const pending=state.pendingFacts.find(fact=>fact.field===answer.field&&fact.value===answer.value);
+    const used=representativeEntries(state).some(entry=>entry.requestId===answer.requestId&&entry.status==='used')||state.representative?.usedAnswerIds?.includes(last.message.id);
+    const said=`הנציג השיב לגבי ${label}: ${formatAnswerValue(answer.field,answer.value)}.`;
+    if (approved===answer.value) return respond(`${said} זה בדיוק הערך שכבר שמור בפרופיל המאושר שלך, כך שאין מה לעדכן או לאשר.`);
+    const inProfile=approved!==undefined&&Number.isFinite(approved)?` בפרופיל המאושר רשום כרגע ${formatAnswerValue(answer.field,approved)}.`:'';
+    if (pending&&state.pendingApproval) return respond(`${said}${inProfile} הערך של הנציג ממתין לאישור שלך בסיכום הפרטים, ויישמר רק אחרי האישור.`,
+      {actions:[{label:'אישור ושמירת הפרטים',body:`אישור פרטי הפרופיל לפי הסיכום #${state.pendingApproval.code}`,primary:true},{label:'יש פרט לתיקון',body:CORRECTION_REQUEST}]});
+    if (pending||used) return respond(`${said}${inProfile} הערך של הנציג כבר נכנס לפרטים שבבדיקה, ויישמר רק אחרי אישור הסיכום.`);
+    return respond(`${said}${inProfile} אם הערך של הנציג נכון, אפשר להשתמש בו. לפני שמירה יוצג סיכום לאישור.`,
+      {actions:[{label:'להשתמש בערך הזה',body:useAnswerMessage(last.message.id),primary:true}]});
+  }
   // An explicit request for a human, in the employee's words, is answered first: before recall, what-ifs, cars or the
   // question on screen ("...לגבי גובה ההשתתפות החודשית ברכב שלי היום" is not an answer about today's car). The
   // request keeps its exact subject; it is opened only after the offered button is pressed.
@@ -411,25 +516,75 @@ async function advisorTurn(track:Track, userId:string, conversationId:string, hi
     const pendingSame=representativeEntries(state).some(entry=>entry.status==='requested'&&entry.topic===topic);
     return respond(`${pendingSame?'הפנייה לנציג בנושא הזה כבר פתוחה; כשתגיע תשובה היא תופיע כאן.':ADDITIONAL_REQUEST_UNAVAILABLE}${still}`);
   }
+  const asksSomething=/\?|(?:^|[^\p{L}])(?:מה|האם|איך|למה|אילו|איזה|איזו|כמה|הסבר|תסביר|תסבירי|אתה\s+יודע|את\s+יודעת)(?=$|[^\p{L}])/u.test(latest.body);
+  const noCodes=![APPROVAL_CODE,REPRESENTATIVE_CODE,ANSWER_CODE].some(code=>code.test(latest.body))&&!decodePayslipReview(latest.body);
+  // "מה ההבדל בין שווי שימוש לבין ההשתתפות החודשית?": every concept asked about is explained, and the difference, in plain
+  // words that follow the calculator (value of use is taxed, participation comes off the net). No catalog, no calculation.
+  // (Written amounts only: number words such as "כל אחד משפיע" are not amounts in a question.)
+  if (noCodes&&asksSomething&&PARTICIPATION_WORD.test(latest.body)&&!/\d/u.test(latest.body)&&
+    /הבדל|מה\s+זה|מה\s+(?:ה)?(?:משמעות|פירוש)|הסבר|להסביר|תסביר|תסבירי|הסבירי|להבין|מתבלבל|מתבלבלת|מה\s+(?:היא|הוא)\s+(?:ה)?השתתפות/u.test(latest.body)) {
+    console.info('[carwise.ai.advisor]',{phase:'plan',outcome:'deterministic',reason:'concept_explanation'});
+    let mine='';
+    try { const profile=await (await financial()).confirmed(userId); if (profile?.user_id===userId&&profile.current_vehicle_id&&Number.isFinite(Number(profile.current_participation)))
+      mine=` בפרופיל המאושר שלך ההשתתפות היום היא ${Number(profile.current_participation).toLocaleString('he-IL')} ₪.`; } catch { /* Explained without it. */ }
+    const both=VALUE_OF_USE_WORD.test(latest.body);
+    return sideReply([both?EXPLAIN_VALUE_OF_USE:'',EXPLAIN_PARTICIPATION+mine,both?EXPLAIN_DIFFERENCE:''].filter(Boolean).join('\n\n'),'conversation');
+  }
+  // Several saved details asked at once ("מה השכר שלי, כמה ילדים יש לי ואיזה רכב יש לי היום?"): all of them, from the
+  // approved profile. "Which car is best for me overall" is answered by CarWise Match, a separate screen, never a catalog here.
+  const recallList=noCodes&&asksSomething?profileRecallFields(latest.body):[];
+  const bestOverall=noCodes&&BEST_CAR_OVERALL.test(latest.body);
+  let namesCar=false;
+  if (bestOverall) {
+    try { namesCar=vehiclesMentioned(latest.body,await activeCatalog(dependencies.catalog?.search??searchAdvisorVehicles)).length>0; }
+    catch { /* Answered as a general question. */ }
+  }
+  if (recallList.length>=2||(bestOverall&&!namesCar)) {
+    track.stage='profile_recall';
+    console.info('[carwise.ai.advisor]',{phase:'plan',outcome:'deterministic',reason:'recall_and_match',fields:recallList.length,match:bestOverall});
+    const recalled=recallList.length?await recallFields(recallList,userId,state,await financial()):'';
+    return sideReply([recalled,bestOverall&&!namesCar?MATCH_POINTER:''].filter(Boolean).join('\n\n'),recallList.length?'profile_recall':'conversation');
+  }
+  // "האם אני זכאית למסלול המשפחתי? אילו רכבים נפתחו לי?": answered from the official rules and the APPROVED profile.
+  // A message that also changes a detail goes through the summary first (and is answered right after its approval).
+  if (noCodes&&asksSomething&&ELIGIBILITY_QUESTION.test(latest.body)&&!/נטו/u.test(latest.body)&&!WAIVER_INTENT.test(latest.body)) {
+    let profile:EmployeeDataVersionRow|null=null;
+    try { profile=await (await financial()).confirmed(userId); } catch { /* Left to the usual flow. */ }
+    const changes=profile&&profile.user_id===userId?extractFieldValues(latest.body).filter(item=>Number(profile![item.field])!==item.value):[];
+    if (profile&&profile.user_id===userId&&!changes.length) {
+      track.stage='eligibility';
+      console.info('[carwise.ai.advisor]',{phase:'plan',outcome:'deterministic',reason:'eligibility_question'});
+      return eligibilityReply(profile);
+    }
+  }
   const recall=profileRecallTopic(latest.body);
   if (recall) return answerRecall(recall);
   // Salary what-ifs are read-only financial scenarios, not occupation changes or profile corrections.
-  const hypotheticalRequest=/(?:הייתי|היפותטי|אילו|ארוויח|אקבל|יעלה|יהיה)/u.test(latest.body);
-  if (hypotheticalRequest&&/(?:שכר|ברוטו)/u.test(latest.body)&&!detectOccupation(latest.body,occupations,{partial:true})) {
-    const amounts=numbersIn(latest.body);
+  // A salary what-if needs a scenario word ("מה אם השכר שלי היה 26,000 במקום 23,000?"), not just a future verb ("כמה נטו
+  // אקבל"). It is not one when the employee asks for the APPROVED salary ("לפי השכר המאושר שלי") and mentions a raise only
+  // as uncertain news. The amount is the NEW value ("במקום 23,000" is the one replaced); the cars are those named now.
+  // (A counterfactual: "היה", "הייתי", "מה אם", "נניח". A plain "אם השכר שלי 18 אלף" answers the salary question.)
+  // A conditional about a future salary is one too: "ואם המשכורת שלי תהיה 26,000…", "אם אקבל 26,000…".
+  const scenarioWord=/(?:^|[^\p{L}])(?:הייתי|היה|הייתה|היו|היפותטי|היפותטית|נניח|תרחיש|ו?מה\s+אם)(?=$|[^\p{L}])/u.test(latest.body)||SCENARIO_ONLY.test(latest.body)||
+    (hypothetical(latest.body)&&/(?:^|[^\p{L}])(?:תהיה|יהיה|יהיו|אקבל|ארוויח|אשתכר|יעלה|תעלה|יגדל|תגדל)(?=$|[^\p{L}])/u.test(latest.body));
+  const lastText=decodeCatalogMessage([...history].reverse().find(message=>message.sender_type==='assistant')?.body??'')?.text??'';
+  // "26,000" right after the question of which salary to check continues that scenario.
+  const scenarioAnswer=!scenarioWord&&!previous?.pendingField&&BARE_VALUE.test(latest.body)&&lastText.startsWith(SALARY_SCENARIO_QUESTION);
+  if (((scenarioWord&&!APPROVED_SALARY.test(latest.body)&&/(?:שכר|ברוטו|משכורת|ארוויח|אשתכר|אקבל\s+\d)/u.test(latest.body))||scenarioAnswer)&&
+    !detectOccupation(latest.body,occupations,{partial:true})) {
+    const amounts=[...new Set(newAmountsIn(latest.body))];
+    let vehicleIds:string[]|undefined;
+    try { const named=vehiclesMentioned(latest.body,await activeCatalog(dependencies.catalog?.search??searchAdvisorVehicles));if (named.length) vehicleIds=named.map(row=>row.id); }
+    catch { /* The cars already chosen are used. */ }
+    console.info('[carwise.ai.advisor]',{phase:'plan',outcome:'deterministic',reason:'salary_scenario',amounts:amounts.length,namedCars:vehicleIds?.length??0});
     return sideReply(amounts.length===1&&!/אחוז|%|בונוס|עמלות|שנתי/u.test(latest.body)
-      ?await simulateSalary(userId,state,amounts[0],occupations,await financial())
-      :'בשמחה! מה שכר הבסיס החודשי ברוטו בשקלים שברצונך לבדוק? זו תהיה סימולציה בלבד, בלי לשנות פרטים מאושרים.','hypothetical');
+      ?await simulateSalary(userId,state,amounts[0],occupations,await financial(),vehicleIds)
+      :`${SALARY_SCENARIO_QUESTION} הפרטים השמורים שלך לא ישתנו.`,'hypothetical');
   }
   if (/היפותטי/u.test(latest.body)&&!WAIVER_INTENT.test(latest.body)&&!detectOccupation(latest.body,occupations,{partial:true})) {
     return sideReply('בשמחה! מה תרצי לשנות לצורך הסימולציה — שכר, רכב או משהו אחר?','hypothetical');
   }
   if (hypothetical(latest.body)&&detectOccupation(latest.body,occupations,{partial:true})) return answerHypothetical();
-  const requests=dependencies.representativeRequests??{
-    get:async(requestId:string,conversation:string,user:string)=>(await import('../representative-request-repository')).getEmployeeRepresentativeRequest(requestId,conversation,user),
-    findActive:async(conversation:string,user:string,topic?:string)=>(await import('../representative-request-repository')).findActiveRepresentativeRequest(conversation,user,topic),
-    cancel:async(requestId:string)=>(await import('../representative-request-repository')).cancelOwnRepresentativeRequest(requestId)
-  };
 
   const approvalCode=latest.body.match(APPROVAL_CODE)?.[1];
   const representativeCode=latest.body.match(REPRESENTATIVE_CODE)?.[1];
@@ -491,11 +646,26 @@ async function advisorTurn(track:Track, userId:string, conversationId:string, hi
         ['claimed','answered'].includes(request.status)&&request.assigned_representative_id===message.sender_user_id&&fieldFromTopic(request.topic)===answer.field);
       console.info('[carwise.ai.advisor]',{phase:'representative_answer',outcome:verified?'verified':'rejected'});
       if (!verified) return respond('לא הצלחתי לאמת את התשובה מול הפנייה לנציג, ולכן לא השתמשתי בה.');
-      const problem=applyRepresentativeValue(state,answer.field,answer.value,latest.id);
-      if (problem) return respond(`הערך שהנציג מסר לא עבר בדיקה, ולכן לא השתמשתי בו. ${problem}`);
-      putRepresentativeEntry(state,{...entry,status:'used'});
-      if (current) state.representative={...current,usedAnswerIds:[...(current.usedAnswerIds??[]),message.id].slice(-10)};
-      answerNote=`קיבלתי את תשובת הנציג: ${REQUESTABLE_FIELDS[answer.field].label} ${formatAnswerValue(answer.field,answer.value)}. הערך יישמר בפרופיל רק אחרי אישור הסיכום.`;
+      // The same value as the approved profile: nothing to change, approve or recalculate.
+      let approved:number|undefined;
+      try { const profile=await (await financial()).confirmed(userId); if (profile?.user_id===userId) approved=Number(profile[answer.field]); } catch { /* Used as a new value below. */ }
+      // (Unless the employee said that value is wrong or unknown here: then it is shown in the summary to confirm.)
+      if (approved===answer.value&&!state.disputedFacts?.includes(answer.field)&&!state.unknownFacts?.includes(answer.field)) {
+        putRepresentativeEntry(state,{...entry,status:'used'});
+        if (current) state.representative={...current,usedAnswerIds:[...(current.usedAnswerIds??[]),message.id].slice(-10)};
+        state.pendingFacts=state.pendingFacts.filter(fact=>fact.field!==answer.field);
+        const same=`הנציג השיב: ${REQUESTABLE_FIELDS[answer.field].label} ${formatAnswerValue(answer.field,answer.value)}. זה בדיוק הערך שכבר שמור בפרופיל המאושר שלך, כך שאין מה לעדכן או לאשר.`;
+        console.info('[carwise.ai.advisor]',{phase:'representative_answer',outcome:'same_as_profile'});
+        // Collecting or approving other details continues below; otherwise the answer is the whole reply.
+        if (!state.pendingFacts.length&&!state.pendingApproval&&!state.pendingField) return respond(same);
+        answerNote=same;
+      } else {
+        const problem=applyRepresentativeValue(state,answer.field,answer.value,latest.id);
+        if (problem) return respond(`הערך שהנציג מסר לא עבר בדיקה, ולכן לא השתמשתי בו. ${problem}`);
+        putRepresentativeEntry(state,{...entry,status:'used'});
+        if (current) state.representative={...current,usedAnswerIds:[...(current.usedAnswerIds??[]),message.id].slice(-10)};
+        answerNote=`קיבלתי את תשובת הנציג: ${REQUESTABLE_FIELDS[answer.field].label} ${formatAnswerValue(answer.field,answer.value)}. הערך יישמר בפרופיל רק אחרי אישור הסיכום.`;
+      }
     }
   }
   // Reviewed payslip values become pending values only; the existing summary approval decides what is saved.
@@ -576,6 +746,51 @@ async function advisorTurn(track:Track, userId:string, conversationId:string, hi
       plan=understood;
     }
   }
+  // A short answer to the question on screen ("קורולה קרוס", "18,500", "אין", "לא יודעת") is that answer, whatever side
+  // label a model put on it (conversation, clarify, hypothetical, recall): it is read against the asked field below.
+  const asked=previous?.pendingField&&state.pendingField===previous.pendingField?state.pendingField:undefined;
+  const sideLabel=Boolean(plan.conversationAct)||['conversation','hypothetical','profile_recall'].includes(plan.intent??'');
+  if (!direct&&asked&&sideLabel&&!waiverWords&&latest.body.trim().length<=40&&!latest.body.includes('?')) {
+    const body=latest.body.trim();
+    // A "no" is an answer only as the whole message ("אין", "לא, אין לי רכב צמוד") or about the asked field ("אין עמלות");
+    // "לא משנה" (never mind) is not.
+    const onlyNo=/^(?:[\s,.!]*(?:ו?(?:אין|לא|ללא|בלי|אפס)|לי|רכב|צמוד|מהחברה|כרגע|היום))+[\s,.!]*$/u.test(body);
+    const saysNo=onlyNo||(/(?:^|[^\p{L}])ו?(?:אין|ללא|בלי|אפס)(?=$|[^\p{L}])/u.test(body)&&fieldsNamedIn(body).includes(asked));
+    let answers=saysUnknown(body);
+    if (!answers&&asked==='current_vehicle_id') {
+      try { answers=saysNo||Boolean(driveTypeIn(body))||identifyVehicle(body,await activeCatalog(dependencies.catalog?.search??searchAdvisorVehicles)).kind!=='none'; }
+      catch { /* Without the catalog the model's reading stands. */ }
+    } else if (!answers&&asked!=='display_name') answers=numbersIn(body).length===1||saysNo;
+    if (answers) {
+      plan=advisorPlanSchema.parse({action:'net',filters:{},operations:plan.operations.filter(operation=>FINANCIAL_OPERATIONS.includes(operation.type))});
+      console.info('[carwise.ai.advisor]',{phase:'plan',outcome:'deterministic',reason:'answer_on_screen',field:asked});
+    }
+  }
+  // Several profile values in the employee's own words ("מרוויחה 21,000 ברוטו, ... ו־3 ילדים, ... משלמת עליה 350") are a
+  // profile update, whatever a model labelled the turn: financial, never a catalog search (a car named in it is today's car).
+  // "אל תשנה את הפרופיל" / "רק בודקת": nothing in this message changes the profile, whatever values it mentions.
+  const keepProfile=KEEP_PROFILE.test(latest.body);
+  const ownWords=!direct&&!keepProfile&&!hypothetical(latest.body)&&!SCENARIO_ONLY.test(latest.body);
+  // Also ONE value written with update words ("נולד לי עוד ילד, אז עכשיו יש לי 5 ילדים. אני רוצה לעדכן").
+  const profileUpdate=ownWords&&!correctionButton&&((extractFieldValues(latest.body).length+fieldValueConflicts(latest.body).length)>=2||
+    (extractFieldValues(latest.body).length>0&&PROFILE_UPDATE_WORDS.test(latest.body)));
+  // A value written next to a field name ("עכשיו כשיש לי 5 ילדים, …") outranks a model's side label (alternatives,
+  // conversation, what-if): the details are handled, and the question in the same message is answered after them.
+  if (ownWords&&!correctionButton&&(Boolean(plan.conversationAct)||['conversation','hypothetical'].includes(plan.intent??'')||['value_of_use','greeting'].includes(plan.action))&&extractFieldValues(latest.body).length) {
+    plan=advisorPlanSchema.parse({...plan,action:['help','value_of_use','greeting'].includes(plan.action)?'net':plan.action,intent:'workflow',conversationAct:undefined});
+    console.info('[carwise.ai.advisor]',{phase:'plan',outcome:'deterministic',reason:'written_values'});
+  }
+  // "אני רוצה להשוות ל־BYD ATTO 3": a catalog car named with a choice word is that choice, never "which car?" (alternatives)
+  // or a side conversation, also after an approval or after options were shown.
+  if (!direct&&!waiverWords&&!roleWhatIf&&(Boolean(plan.conversationAct)||plan.intent==='conversation')&&
+    /להשוות|השוואה|רוצה|בוחר|בוחרת|לבחור|מעדיף|מעדיפה|לבדוק|לחשב|תחשב|תחשבי|חישוב|נטו|כמה/u.test(latest.body)) {
+    try {
+      if (vehiclesMentioned(latest.body,await activeCatalog(dependencies.catalog?.search??searchAdvisorVehicles)).length) {
+        plan=advisorPlanSchema.parse({...plan,action:plan.action==='help'?'net':plan.action,intent:'workflow',conversationAct:undefined});
+        console.info('[carwise.ai.advisor]',{phase:'plan',outcome:'deterministic',reason:'named_catalog_car'});
+      }
+    } catch { /* Without the catalog the model's reading stands. */ }
+  }
   // Explicit vehicle net questions outrank erroneous recall and role-hypothetical model labels.
   // Role and waiver scenarios retain their dedicated routes. A vehicle what-if supplies no profile facts.
   const vehicleNetQuestion=!direct&&!roleWhatIf&&!waiverWords&&/נטו/u.test(latest.body)&&
@@ -646,7 +861,7 @@ async function advisorTurn(track:Track, userId:string, conversationId:string, hi
     state.pendingFacts.length>0||Boolean(state.disputedFacts?.length)||awaitingRepresentative(state));
   // Answering "which car do you drive today?" is about the current car only: no search or comparison change.
   const answeringCarQuestion=previous?.pendingField==='current_vehicle_id';
-  const protectedTurn=correctionContext||(financialContext&&modelFacts)||workflowPending||answeringCarQuestion;
+  const protectedTurn=correctionContext||(financialContext&&modelFacts)||workflowPending||answeringCarQuestion||profileUpdate;
   if (protectedTurn) {
     const searchOperations=['new_search','set_preference','clear_preference','report_group','select_vehicles','compare_all'];
     const explicitCar=/[A-Za-z]{2,}|חשמלי|היברידי|בנזין|יצרן|דגם|משפחתי/u;
@@ -654,7 +869,7 @@ async function advisorTurn(track:Track, userId:string, conversationId:string, hi
       (!correctionContext&&!answeringCarQuestion&&(operation.type==='new_search'?EXPLICIT_NEW_SEARCH.test(latest.body):explicitCar.test(operation.evidence)));
     const ignored=plan.operations.filter(operation=>!keep(operation)).length;
     plan=advisorPlanSchema.parse({...plan,action:correctionContext&&['catalog','family'].includes(plan.action)?'net':plan.action,
-      goal:plan.goal&&['net','waiver'].includes(plan.goal)?plan.goal:undefined,filters:correctionContext||answeringCarQuestion?{}:plan.filters,
+      goal:plan.goal&&['net','waiver'].includes(plan.goal)?plan.goal:undefined,filters:correctionContext||answeringCarQuestion||profileUpdate?{}:plan.filters,
       operations:plan.operations.filter(keep)});
     if (ignored) console.info('[carwise.ai.advisor]',{phase:'plan',outcome:'workflow_protected',ignoredSearchOperations:ignored});
   }
@@ -674,7 +889,8 @@ async function advisorTurn(track:Track, userId:string, conversationId:string, hi
   // An explicit request to see or compare cars, in THIS message, replaces a persisted goal (e.g. a completed waiver):
   // the old goal must not be replayed as the answer. Never inside a correction; an explicit waiver wins.
   // "להשוות לרכב אחר" mentions "another car" but is a comparison with the current selection, not a new search.
-  const discoveryIntent=!correctionContext&&!waiverIntent&&!compareAnother&&!allShownRequested&&(EXPLICIT_NEW_SEARCH.test(latest.body)||NEW_CAR_SEARCH.test(latest.body)||
+  // ("אילו רכבים נוספים נפתחו לי?" asks about eligibility, answered from the rules, not a catalog listing.)
+  const discoveryIntent=!correctionContext&&!waiverIntent&&!compareAnother&&!allShownRequested&&!ELIGIBILITY_QUESTION.test(latest.body)&&(EXPLICIT_NEW_SEARCH.test(latest.body)||NEW_CAR_SEARCH.test(latest.body)||
     (CAR_SET.test(latest.body)&&DISCOVERY_VERB.test(latest.body)));
   const discoveryGoal=COMPARE_WORD.test(latest.body)?'net' as const:'catalog' as const;
   // Filters restart only when the discovery replaces a goal or asks for all/other cars; otherwise the employee's
@@ -693,7 +909,8 @@ async function advisorTurn(track:Track, userId:string, conversationId:string, hi
   if (discoveryIntent) state.goal=discoveryGoal;
   // A fresh discovery starts from this message only; filters are not recovered from older messages.
   // An answer to "which car do you drive today?" ("היברידי") describes that car: it never becomes a search filter.
-  if (!answeringCarQuestion) state.preferences=accumulateCatalogFilters(state.preferences,plan.filters,freshSearch?[latest.body]:
+  // Nor does a profile update ("יש לי היום קורולה קרוס היברידית" describes today's car), unless it explicitly asks for cars.
+  if (!answeringCarQuestion&&!(profileUpdate&&!discoveryIntent)) state.preferences=accumulateCatalogFilters(state.preferences,plan.filters,freshSearch?[latest.body]:
     history.filter(message=>message.sender_type==='employee'&&message.sender_user_id===userId).map(message=>message.body));
 
   for (const operation of plan.operations) {
@@ -787,20 +1004,29 @@ async function advisorTurn(track:Track, userId:string, conversationId:string, hi
   }
   track.stage='facts';
   // Facts are kept in conversation state even when this turn must first ask a clarification.
-  const financialOperations=plan.operations.filter(operation=>FINANCIAL_OPERATIONS.includes(operation.type)) as FinancialOperation[];
+  const financialOperations=(keepProfile?[]:plan.operations.filter(operation=>FINANCIAL_OPERATIONS.includes(operation.type))) as FinancialOperation[];
   // In a financial conversation the server itself reads values written next to field names (never in a what-if).
-  const extract=!direct&&!vehicleWhatIf&&!correctionButton&&!hypothetical(latest.body)&&!/(?:הייתי|אילו|נניח)/u.test(latest.body)&&
-    (financialContext||plan.action==='net'||['net','waiver'].includes(plan.goal??'')||Boolean(state.pendingField));
+  const financialMessage=financialContext||plan.action==='net'||['net','waiver'].includes(plan.goal??'')||Boolean(state.pendingField)||profileUpdate;
+  const extract=!direct&&!keepProfile&&!vehicleWhatIf&&!correctionButton&&!hypothetical(latest.body)&&!SCENARIO_ONLY.test(latest.body)&&financialMessage;
   // "לעבור מ-COROLLA CROSS ל-ATTO 3": the car after "מ-" is the car the employee drives today, in their own words, also
-  // when a model read it only as a car to compare. It is the baseline, never one of the cars to price.
+  // when a model read it only as a car to compare. It is the baseline, never one of the cars to price. Inside a what-if
+  // too ("אם אעבור מהקורולה קרוס ל-ATTO 3...?"): the move is the scenario, the car moved FROM is today's car.
   let switchFrom=new Set<string>();
+  let todaysCarSaid=false;
   const normalizedBody=` ${normalizeVehicleText(latest.body)} `;
-  if (!direct&&!correctionContext&&(/[A-Za-z]{2,}/u.test(latest.body)||Object.values(MODEL_ALIASES).flat().some(alias=>normalizedBody.includes(` ${normalizeVehicleText(alias)}`)))) {
+  if (!direct&&!correctionContext&&(/[A-Za-z]{2,}/u.test(latest.body)||Object.values(MODEL_ALIASES).flat().some(alias=>normalizedBody.includes(normalizeVehicleText(alias))))) {
     try {
       const direction=vehicleDirection(latest.body,await activeCatalog(dependencies.catalog?.search??searchAdvisorVehicles));
       switchFrom=new Set(direction.from.map(item=>item.row.id));
-      if (extract&&direction.from.length===1&&!financialOperations.some(operation=>operation.type==='report_current_vehicle')) {
-        financialOperations.push({type:'report_current_vehicle',hasCar:true,name:direction.from[0].row.display_name,evidence:direction.from[0].text});
+      // ("ATTO 3 לעומת COROLLA CROSS" only compares: it never replaces the car of the profile.)
+      if (!correctionButton&&!keepProfile&&financialMessage&&direction.from.length===1&&!direction.from[0].compared&&
+        // ("במקום ATTO 3 ארצה…" while ATTO 3 is the car being considered replaces that choice, not today's car.)
+        !(direction.from[0].replaced&&(state.selectedVehicleIds??[]).includes(direction.from[0].row.id))) {
+        todaysCarSaid=true;
+        // The employee's own words decide today's car (a model's reading of it, or its absence, does not).
+        const others=financialOperations.filter(operation=>operation.type!=='report_current_vehicle');
+        financialOperations.splice(0,financialOperations.length,...others,
+          {type:'report_current_vehicle',hasCar:true,name:direction.from[0].row.display_name,evidence:direction.from[0].text});
       }
     } catch { /* Without the catalog, the model's reading stands. */ }
   }
@@ -809,9 +1035,13 @@ async function advisorTurn(track:Track, userId:string, conversationId:string, hi
   const previousChoices=(lastReply?decodeCatalogMessage(lastReply.body)?.actions??[]:[])
     .flatMap(action=>action.body.match(/^הרכב הצמוד שלי היום: .+ \(([A-Za-z]+-\d+)\)$/u)?.[1]??[]);
   const approvedVehicleId=async()=>{const profile=await (await financial()).confirmed(userId);return profile?.user_id===userId?profile.current_vehicle_id:null;};
-  const applied=!vehicleWhatIf&&(financialOperations.length||state.pendingField||(extract&&extractFieldValues(latest.body).length))
-    ?await applyFinancialOperations(state,financialOperations,latest,await financial(),{extract,approvedVehicleId,previousChoices,
-      notAnAnswer:plan.operations.some(operation=>operation.type==='request_representative')})
+  // A what-if supplies no profile facts, except today's car named as the car moved from (only that operation).
+  const applied=vehicleWhatIf&&todaysCarSaid
+    ?await applyFinancialOperations(state,financialOperations.filter(operation=>operation.type==='report_current_vehicle'),latest,await financial(),
+      {approvedVehicleId,presentCar:true,notAnAnswer:true})
+    :!vehicleWhatIf&&(financialOperations.length||state.pendingField||(extract&&extractFieldValues(latest.body).length))
+    ?await applyFinancialOperations(state,financialOperations,latest,await financial(),{extract,approvedVehicleId,previousChoices,presentCar:todaysCarSaid,
+      notAnAnswer:keepProfile||plan.operations.some(operation=>operation.type==='request_representative')})
     :{notes:[] as FinancialNote[],accepted:0,unknownNow:[] as FactField[],offerRepresentative:undefined};
   // Every value a model attached to a field the message does not name was dropped, and nothing else was understood:
   // ask which detail rather than guess (the summary and the draft stay exactly as they are).
@@ -911,7 +1141,9 @@ async function advisorTurn(track:Track, userId:string, conversationId:string, hi
       const named=[...new Map(rows.map(row=>[row.id,row])).values()];
       // (So is the car the employee says they are moving FROM: "לעבור מ-COROLLA CROSS ל-ATTO 3".)
       const baseline=new Set([...current,...switchFrom]);
-      const unique=named.some(row=>!baseline.has(row.id))?named.filter(row=>!baseline.has(row.id)):named;
+      // When the car asked for is not in the catalog ("במקום ATTO 3 … טסלה מודל Y לעומת הקורולה קרוס"), the other cars
+      // in the sentence are only what it replaces or is compared with: none of them becomes the choice.
+      const unique=unlisted.length||named.some(row=>!baseline.has(row.id))?named.filter(row=>!baseline.has(row.id)):named;
       tooMany=unique.length>MAX_COMPARED;
       let chosen=tooMany?[]:unique;
       if (!chosen.length&&!ambiguous&&state.vehicleInterest?.length&&state.group) chosen=catalog.filter(row=>state.vehicleInterest!.includes(row.id));
@@ -1090,8 +1322,10 @@ async function advisorTurn(track:Track, userId:string, conversationId:string, hi
   // A correction never shows recommendations.
   // An explicit discovery request always shows the eligible catalog, whatever goal was active before.
   const currentDiscovery=['catalog','family'].includes(plan.action)&&(!plan.intent||plan.intent==='workflow'||plan.intent==='resume');
-  const showCatalog=!selected&&!correctionContext&&(discoveryIntent||(currentDiscovery&&!financialTurn)||searchChanged||
-    (wantsCars&&(occupationChanged||(needsCatalog&&!state.shownVehicles?.length&&!state.selectedVehicleIds?.length))));
+  // A profile update lists no cars by itself (restating the role there is not a new occupation): only an explicit request does.
+  // (Nor does naming the car already chosen: "כמה נטו עם ה־ATTO 3…" confirms it; it is not a request to list cars.)
+  const showCatalog=!selected&&!reconfirmed&&!correctionContext&&(discoveryIntent||(currentDiscovery&&!financialTurn)||searchChanged||
+    (wantsCars&&!profileUpdate&&(occupationChanged||(needsCatalog&&!state.shownVehicles?.length&&!state.selectedVehicleIds?.length))));
   let reply:CatalogMessage;
   if (selected) {
     // The chosen car is acknowledged, never recommended again.
@@ -1132,9 +1366,29 @@ async function advisorTurn(track:Track, userId:string, conversationId:string, hi
   if (financialTurn) {
     // The durable goal decides what is calculated, including right after a new profile version is approved.
     if (state.activeGoal?.kind==='vehicles') state.selectedVehicleIds=state.activeGoal.vehicleIds;
+    // The summary being approved came with a question about eligibility ("…האם זה משנה את הזכאות שלי?"): after saving,
+    // that question is answered, not an earlier calculation.
+    let updateQuestion='';
+    if (approvalCode) {
+      const at=history.findIndex(message=>message.sender_type==='assistant'&&decodeCatalogMessage(message.body)?.approval?.code===approvalCode);
+      if (at>0) updateQuestion=[...history.slice(0,at)].reverse().find(message=>message.sender_type==='employee')?.body??'';
+    }
+    const eligibilityAfterSave=ELIGIBILITY_QUESTION.test(updateQuestion)&&!/נטו/u.test(updateQuestion);
+    // A calculation runs only when this turn asks for one (words, a car or waiver named now, an approval, a value given,
+    // or the answer to the question that led here). An unchanged approved profile is otherwise not recalculated.
+    const calculationAsked=CALCULATION_WORDS.test(latest.body)||Boolean(approvalCode)||Boolean(selected)||vehiclesNamedNow||Boolean(reconfirmed)||
+      searchChanged||discoveryIntent||
+      waiverIntent||applied.accepted>0||disputedNow.length>0||Boolean(payslip)||
+      ['next_step','comparison','vehicle_selection','financial','approval','correction','occupation','occupation_choice'].includes(previous?.pendingQuestion??'');
     const outcome=await advanceFinancialFlow({userId,conversationId,latest,state,approvalCode,notes:applied.notes,waiver:state.activeGoal?.kind==='waiver',
       accepted:applied.accepted,unknownNow:applied.unknownNow,disputedNow,progressed:Boolean(selected)||Boolean(answerNote)||Boolean(payslip)||Boolean(applied.vehicleChoices?.length),vehiclesNamedNow,
-      occupation:state.occupation?.status==='matched'?state.occupation.match:undefined},await financial());
+      occupation:state.occupation?.status==='matched'?state.occupation.match:undefined,stopAfterSave:eligibilityAfterSave,calculate:calculationAsked},await financial());
+    if (eligibilityAfterSave&&outcome.text.startsWith('שמרתי את הפרטים')&&!outcome.calculation) {
+      let saved:EmployeeDataVersionRow|null=null;
+      try { saved=await (await financial()).confirmed(userId); } catch { /* Said without the eligibility answer. */ }
+      if (saved?.user_id===userId) return eligibilityReply(saved,`${outcome.text}\n\n`);
+    }
+    if (!calculationAsked&&!outcome.text&&!outcome.approval) outcome.text=NOTHING_TO_CALCULATE;
     reply.text=[answerNote,payslip?.text,supersededNote,reply.text.replace(/\s*איזה מהרכבים מעניין אותך\?\s*$/u,''),outcome.text].filter(Boolean).join('\n\n');
     if (outcome.approval) reply.approval=outcome.approval;
     if (outcome.calculation) reply.calculation=outcome.calculation;

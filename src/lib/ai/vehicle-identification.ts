@@ -98,7 +98,14 @@ export function driveTypeIn(text: string): string | undefined {
   return value.startsWith('חשמלי') ? 'חשמלי' : value.startsWith('היברידי') ? 'היברידי' : value.startsWith('פלאג') ? 'פלאג-אין' : 'בנזין';
 }
 
-export type DirectedVehicle = { row: CatalogRow; text: string };
+/**
+ * compared: named only as what another car is compared with ("ATTO 3 לעומת COROLLA CROSS"), not as today's car.
+ * replaced: named after "במקום" — today's car, or the car being considered that the employee wants to replace
+ * ("במקום ATTO 3 ארצה MODEL 3"); the conversation decides which.
+ */
+export type DirectedVehicle = { row: CatalogRow; text: string; compared?: boolean; replaced?: boolean };
+const COMPARED_BEFORE = /(?:לעומת|מאשר)[\s\-־]*(?:ה[\s\-־]*)?$/u;
+const REPLACED_BEFORE = /במקום[\s\-־]*(?:ה[\s\-־]*)?$/u;
 const BRAND_WORD = new RegExp(`(?:${BRANDS.flatMap(brand => brand.aliases).map(alias => alias.replace(/ /g, '\\s+')).join('|')})[\\s\\-־]*$`, 'iu');
 // Words before a name that make it the car the employee drives TODAY ("מ-", "במקום", "יש לי", "לעומת").
 // ("מה ATTO 3 עולה?" is a question word, not "from": "מה" counts only as "מה-".)
@@ -129,9 +136,13 @@ export function vehicleDirection(text: string, rows: CatalogRow[]): { from: Dire
         const attached = match[1].replace(/^ו/u, '').replace(/^ה$/u, '');
         // "להחליף את X ב-Y": after "להחליף", "ב-" names the wanted car.
         const replacing = replace && (attached.startsWith('ב') || /(?:^|[^\p{L}])ב[\s\-־]*$/u.test(before));
-        const side = attached.startsWith('מ') || (!attached && !replacing && FROM_BEFORE.some(rule => rule.test(before))) ? 'from'
-          : attached.startsWith('ל') || replacing || (!attached && TO_BEFORE.some(rule => rule.test(before))) ? 'to' : undefined;
-        hits.push({ item: { row, text: match[2] }, start, end, side });
+        // An attached "ב" is read with the words before it: "אני נוסע בקורולה קרוס" (today's car), "רוצה בקורולה" (wanted).
+        const words = attached.startsWith('ב') ? `${before}${attached}` : attached ? '' : before;
+        const side = attached.startsWith('מ') || (!replacing && words && FROM_BEFORE.some(rule => rule.test(words))) ? 'from'
+          : attached.startsWith('ל') || replacing || (words && TO_BEFORE.some(rule => rule.test(words))) ? 'to' : undefined;
+        const compared = side === 'from' && !attached && COMPARED_BEFORE.test(before);
+        const replaced = side === 'from' && !attached && REPLACED_BEFORE.test(before);
+        hits.push({ item: { row, text: match[2], ...(compared ? { compared } : {}), ...(replaced ? { replaced } : {}) }, start, end, side });
       }
     }
   }
