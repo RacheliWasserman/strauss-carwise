@@ -12,6 +12,20 @@
 
 ---
 
+
+## 🖥️ Application Preview
+
+<div align="center">
+
+![Strauss CarWise — AI Vehicle Advisor](docs/צילום%20מסך%202026-10-29%20205503.png)
+
+*CarWise — AI-powered vehicle advisor with a Hebrew conversational interface.*
+
+</div>
+
+---
+
+
 ## 🌟 Overview
 
 **Strauss CarWise** is a Full Stack AI-powered vehicle advisory application designed to help employees make informed decisions about company car options.
